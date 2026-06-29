@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ENGINE-CCTV LiveView</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Top Bar -->
+  <header id="topbar">
+    <button id="sidebar-toggle" aria-label="Toggle camera sidebar" style="display:none">&#9776;</button>
+    <div class="logo">ENGINE <span>CCTV</span></div>
+    <div class="grid-presets" id="grid-presets"></div>
+    <div class="topbar-spacer"></div>
+    <div class="protocol-badge" id="protocol-badge" title="Current streaming protocol and quality">
+      <span class="protocol-badge-proto" id="protocol-badge-proto">WebRTC</span>
+      <span class="protocol-badge-sep">|</span>
+      <span class="protocol-badge-quality" id="protocol-badge-quality">SUB</span>
+    </div>
+    <div id="stream-budget">Active: 0 / 36</div>
+    <button class="topbar-btn" id="btn-mute-all" title="Mute All Streams">
+      <svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+      Mute All
+    </button>
+    <div class="popover-anchor">
+      <button class="topbar-btn" id="btn-save-layout" title="Save Layout">
+        <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save
+      </button>
+      <div class="popover" id="save-popover">
+        <input class="form-input" id="save-name-input" placeholder="Layout name…">
+        <div class="btn-group" style="margin-top:0">
+          <button class="btn btn-primary btn-sm" id="save-confirm">Save</button>
+          <button class="btn btn-secondary btn-sm" id="save-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="popover-anchor">
+      <button class="topbar-btn" id="btn-load-layout" title="Load Layout">
+        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        Load
+      </button>
+      <div class="popover" id="saved-layouts-dropdown"></div>
+    </div>
+    <button class="topbar-btn" id="btn-fullscreen-grid" title="Fullscreen Grid">
+      <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+      Fullscreen
+    </button>
+    <button class="topbar-btn" id="btn-activity" title="Activity Log (L)" aria-label="Open activity log" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      Activity
+      <span class="activity-badge" id="activity-badge" hidden>0</span>
+    </button>
+    <button class="topbar-btn" id="btn-settings" title="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </button>
+  </header>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h3>Cameras</h3>
+      <div class="search-wrap">
+        <input type="text" id="search-input" placeholder="Search cameras…" aria-label="Search cameras">
+        <button id="search-clear" aria-label="Clear search">&#215;</button>
+      </div>
+    </div>
+    <div id="camera-list" role="list"></div>
+    <div class="sidebar-tip">Drag a camera onto the grid &middot; Press Enter to auto-assign</div>
+    <button id="sidebar-collapse-btn" type="button" aria-label="Collapse sidebar (B)" aria-expanded="true" title="Collapse sidebar (B)">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+  </aside>
+
+  <!-- Grid -->
+  <section id="grid-area">
+    <div id="grid-empty-state">
+      <p>Drag cameras from the sidebar to get started</p>
+      <p>Or load a saved layout from the top bar</p>
+    </div>
+    <div id="grid-container"></div>
+  </section>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Settings Modal -->
+<div class="modal-backdrop" id="settings-modal" role="presentation">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-tabs" role="tablist">
+      <button class="modal-tab active" data-tab="cameras" role="tab" aria-selected="true">Cameras</button>
+      <button class="modal-tab" data-tab="streams" role="tab" aria-selected="false">Streams</button>
+      <button class="modal-tab" data-tab="display" role="tab" aria-selected="false">Display</button>
+      <button class="modal-tab" data-tab="layouts" role="tab" aria-selected="false">Layouts</button>
+      <button class="modal-tab" data-tab="analytics" role="tab" aria-selected="false">Analytics</button>
+      <button class="modal-tab" data-tab="about" role="tab" aria-selected="false">Shortcuts</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-header">
+        <h2 id="modal-title">Cameras</h2>
+        <button class="modal-close" id="modal-close-btn" aria-label="Close settings">&#215;</button>
+      </div>
+      <div class="modal-content">
+
+        <!-- Cameras Tab -->
+        <div class="tab-pane active" id="pane-cameras" role="tabpanel">
+
+          <!-- ===== Camera list view ===== -->
+          <div id="cam-list-view">
+            <div class="cam-list-toolbar">
+              <div class="search-wrap cam-list-search-wrap">
+                <input type="text" class="form-input" id="cam-list-search" placeholder="Search cameras…" aria-label="Search configured cameras">
+              </div>
+              <button class="btn btn-primary" id="cam-show-form-btn" type="button">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Camera
+              </button>
+            </div>
+            <div class="cam-list-meta">
+              <span id="cam-count-label">0 cameras</span>
+              <span class="cam-list-actions">
+                <button class="btn-link" id="cam-import-btn" type="button">Import JSON</button>
+                <span class="meta-sep">·</span>
+                <button class="btn-link" id="cam-export-btn" type="button">Export JSON</button>
+              </span>
+            </div>
+            <table class="cam-table">
+              <thead><tr>
+                <th scope="col">Name</th>
+                <th scope="col">Group</th>
+                <th scope="col">IP Address</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
+              </tr></thead>
+              <tbody id="cam-table-body"></tbody>
+            </table>
+            <div class="cam-empty" id="cam-empty" hidden>No cameras yet.</div>
+            <input type="file" id="cam-import-file" accept=".json" style="display:none">
+          </div>
+
+          <!-- ===== Add / edit camera view ===== -->
+          <div id="cam-form-view" hidden>
+            <button class="back-link" id="cam-form-back" type="button">
+              <svg viewBox="0 0 24 24" width="13" height="13"><polyline points="15 18 9 12 15 6"/></svg>
+              Cameras
+            </button>
+            <h3 class="cam-form-heading" id="cam-form-title">Add Camera</h3>
+
+            <div class="device-type-group">
+              <div class="seg-control" role="radiogroup" aria-label="Device type">
+                <button class="seg-btn active" data-device="ipcamera" role="radio" aria-checked="true" type="button">
+                  <div class="seg-title">IP Camera</div>
+                  <div class="seg-meta">One network camera</div>
+                </button>
+                <button class="seg-btn" data-device="nvr" role="radio" aria-checked="false" type="button">
+                  <div class="seg-title">NVR / Recorder</div>
+                  <div class="seg-meta">Many channels, one device</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Connect -->
+            <div class="form-block">
+              <div class="form-block-title">Connect</div>
+              <div class="form-row">
+                <div class="form-group" style="flex:1.3">
+                  <label for="cam-add-brand">Brand</label>
+                  <select class="form-select" id="cam-add-brand">
+                    <option value="hikvision">Hikvision</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex:1.5">
+                  <label for="cam-add-ip">IP address</label>
+                  <input class="form-input" id="cam-add-ip" placeholder="192.168.1.x">
+                </div>
+                <div class="form-group" style="flex:.7">
+                  <label for="cam-add-rtsp-port">Port</label>
+                  <input class="form-input" id="cam-add-rtsp-port" type="number" value="554" min="1" max="65535">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="cam-add-user">Username</label>
+                  <input class="form-input" id="cam-add-user" placeholder="admin">
+                </div>
+                <div class="form-group">
+                  <label for="cam-add-pass">Password</label>
+                  <div class="password-wrapper">
+                    <input class="form-input" id="cam-add-pass" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;">
+                    <button class="password-toggle" id="pass-toggle-btn" type="button" aria-label="Toggle password visibility" title="Show password">
+                      <svg class="eye-open" viewBox="0 0 24 24" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      <svg class="eye-closed" viewBox="0 0 24 24" width="16" height="16" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="test-conn-row">
+                <button class="btn btn-secondary" id="cam-test-btn" type="button">Test connection</button>
+                <span class="conn-status" id="conn-status" role="status"></span>
+              </div>
+            </div>
+
+            <!-- NVR channels -->
+            <div class="form-block" id="nvr-channels-block" hidden>
+              <div class="form-block-title">Channels</div>
+              <div class="nvr-hint" id="nvr-hint">Scan the device to list its channels.</div>
+              <div class="nvr-toolbar" id="nvr-toolbar" hidden>
+                <label class="nvr-checkbox"><input type="checkbox" id="nvr-select-all" checked> Select all</label>
+                <span id="nvr-sel-count"></span>
+              </div>
+              <div id="nvr-channels-list"></div>
+            </div>
+
+            <!-- Name & group -->
+            <div class="form-block" id="identify-block">
+              <div class="form-block-title">Name &amp; group</div>
+              <div class="form-row">
+                <div class="form-group" id="name-field-group">
+                  <label for="cam-add-name">Camera name <span class="req">*</span></label>
+                  <input class="form-input" id="cam-add-name" placeholder="e.g. Front Gate">
+                  <div class="form-error">Name is required</div>
+                </div>
+                <div class="form-group">
+                  <label for="cam-add-group">Group</label>
+                  <select class="form-select" id="cam-add-group"></select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Advanced -->
+            <div class="advanced-section">
+              <button class="advanced-toggle" id="advanced-toggle-btn" type="button">
+                <span class="adv-chevron">&#9656;</span> Advanced settings
+              </button>
+              <div class="advanced-content" id="advanced-content">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="cam-add-stream-path">RTSP stream path</label>
+                    <input class="form-input" id="cam-add-stream-path" value="/Streaming/Channels/" placeholder="e.g. 101=ch1 main, 102=ch1 sub">
+                  </div>
+                  <div class="form-group" style="flex:.6">
+                    <label for="cam-add-web-port">Web port</label>
+                    <input class="form-input" id="cam-add-web-port" type="number" value="80" min="1" max="65535">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="cam-add-thumb">Thumbnail URL (optional)</label>
+                  <input class="form-input" id="cam-add-thumb" placeholder="https://…">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label>RTSP URL preview</label>
+                  <div class="rtsp-preview" id="rtsp-preview">rtsp://</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="cam-form-footer">
+              <button class="btn btn-secondary" id="cam-form-cancel" type="button">Cancel</button>
+              <button class="btn btn-primary" id="cam-add-btn" type="button">Save camera</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Streams Tab -->
+        <div class="tab-pane" id="pane-streams" role="tabpanel">
+          <!-- Protocol Selector Card -->
+          <div class="protocol-card" id="protocol-card">
+            <div class="protocol-card-label">Streaming Protocol</div>
+            <div class="protocol-card-desc">Global default for all cameras</div>
+            <div class="seg-control" role="radiogroup" aria-label="Streaming protocol">
+              <button class="seg-btn active" data-proto="webrtc" role="radio" aria-checked="true">
+                <div class="seg-title">WebRTC</div>
+                <div class="seg-meta">&lt; 500ms &middot; Audio + Video</div>
+              </button>
+              <button class="seg-btn" data-proto="mjpeg" role="radio" aria-checked="false">
+                <div class="seg-title">MJPEG</div>
+                <div class="seg-meta">~1s &middot; No audio &middot; Universal</div>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Default Stream Quality</div>
+              <div class="setting-desc">Main streams are higher quality but use more bandwidth</div>
+            </div>
+            <select class="form-select" style="width:100px" id="set-default-quality" aria-label="Default stream quality">
+              <option value="sub">Sub</option>
+              <option value="main">Main</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Max Concurrent Streams</div>
+              <div class="setting-desc">Stream budget limit</div>
+            </div>
+            <div class="range-group" style="width:200px">
+              <input type="range" min="1" max="36" value="36" id="set-max-streams" aria-label="Maximum concurrent streams">
+              <span class="range-val" id="set-max-streams-val">36</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Reconnect Interval</div>
+              <div class="setting-desc">Seconds before auto-reconnect attempt</div>
+            </div>
+            <div class="range-group" style="width:200px">
+              <input type="range" min="1" max="30" value="5" id="set-reconnect" aria-label="Reconnect interval in seconds">
+              <span class="range-val" id="set-reconnect-val">5s</span>
+            </div>
+          </div>
+          <div class="setting-row webrtc-only" id="audio-setting-row">
+            <div>
+              <div class="setting-label">Audio Enabled by Default</div>
+              <div class="setting-desc" id="audio-setting-desc">New camera tiles start with audio on</div>
+            </div>
+            <label class="toggle" aria-label="Audio enabled by default">
+              <input type="checkbox" id="set-audio-default" role="switch">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Display Tab -->
+        <div class="tab-pane" id="pane-display" role="tabpanel">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Grid Gap Size</div>
+              <div class="setting-desc">Space between tiles</div>
+            </div>
+            <div class="range-group" style="width:200px">
+              <input type="range" min="0" max="12" value="4" id="set-grid-gap" aria-label="Grid gap in pixels">
+              <span class="range-val" id="set-grid-gap-val">4px</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Show Camera Names</div>
+              <div class="setting-desc">Display name overlay on tiles</div>
+            </div>
+            <label class="toggle" aria-label="Show camera names">
+              <input type="checkbox" id="set-show-names" checked role="switch">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Show LIVE Badge</div>
+              <div class="setting-desc">Green LIVE indicator on active tiles</div>
+            </div>
+            <label class="toggle" aria-label="Show live badge">
+              <input type="checkbox" id="set-show-live" checked role="switch">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Tile Aspect Ratio</div>
+              <div class="setting-desc">Tile shape in grid</div>
+            </div>
+            <select class="form-select" style="width:100px" id="set-aspect-ratio" aria-label="Tile aspect ratio">
+              <option value="16/9">16:9</option>
+              <option value="4/3">4:3</option>
+              <option value="auto">Auto</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Animation Speed</div>
+              <div class="setting-desc">Transition speed for grid changes</div>
+            </div>
+            <select class="form-select" style="width:100px" id="set-anim-speed" aria-label="Animation speed">
+              <option value="0.15s">Fast</option>
+              <option value="0.25s" selected>Normal</option>
+              <option value="0.5s">Slow</option>
+              <option value="0s">Off</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Layouts Tab -->
+        <div class="tab-pane" id="pane-layouts" role="tabpanel">
+          <h3 style="font-size:14px;margin-bottom:12px">Saved Layouts</h3>
+          <div id="settings-layout-list"></div>
+          <div class="btn-group" style="margin-top:16px">
+            <button class="btn btn-secondary" id="layout-import-btn">Import JSON</button>
+            <button class="btn btn-secondary" id="layout-export-btn">Export JSON</button>
+            <button class="btn btn-danger" id="layout-reset-btn">Reset All</button>
+          </div>
+          <input type="file" id="layout-import-file" accept=".json" style="display:none">
+        </div>
+
+        <!-- Analytics Tab -->
+        <div class="tab-pane" id="pane-analytics" role="tabpanel">
+          <div id="analytics-content"></div>
+        </div>
+
+        <!-- About Tab -->
+        <div class="tab-pane" id="pane-about" role="tabpanel">
+          <h3 style="font-size:14px;margin-bottom:12px">Keyboard Shortcuts</h3>
+          <table class="shortcut-table">
+            <tr><td><kbd>1</kbd> &ndash; <kbd>6</kbd></td><td>Switch grid preset</td></tr>
+            <tr><td><kbd>ESC</kbd></td><td>Exit focus mode / close settings</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Fullscreen focused tile</td></tr>
+            <tr><td><kbd>&#8592;</kbd><kbd>&#8593;</kbd><kbd>&#8594;</kbd><kbd>&#8595;</kbd></td><td>Navigate between tiles</td></tr>
+            <tr><td><kbd>Del</kbd></td><td>Remove camera from selected tile</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Toggle audio on selected tile</td></tr>
+            <tr><td><kbd>M</kbd></td><td>Mute / unmute all streams</td></tr>
+            <tr><td><kbd>B</kbd></td><td>Collapse / expand camera sidebar</td></tr>
+            <tr><td><kbd>L</kbd></td><td>Open / close activity log</td></tr>
+          </table>
+          <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--bg-600)">
+            <p style="color:var(--text-300);font-size:12px">ENGINE-CCTV &mdash; Unified Streaming Platform</p>
+            <p style="color:var(--text-300);font-size:12px;margin-top:4px">WebRTC + MJPEG &middot; Version 1.0.0</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Activity Log Drawer -->
+<div class="drawer-backdrop" id="activity-backdrop"></div>
+<aside class="activity-drawer" id="activity-drawer" role="dialog" aria-modal="true"
+       aria-labelledby="activity-drawer-title" aria-hidden="true">
+  <div class="drawer-header">
+    <h2 id="activity-drawer-title">Activity Log</h2>
+    <button class="modal-close" id="activity-close-btn" aria-label="Close activity log">&#215;</button>
+  </div>
+  <div class="drawer-toolbar">
+    <div class="search-wrap">
+      <input type="text" id="activity-search" placeholder="Search events…" aria-label="Search activity log">
+      <button id="activity-search-clear" aria-label="Clear search">&#215;</button>
+    </div>
+    <div class="drawer-filters">
+      <select class="form-select" id="activity-filter-severity" aria-label="Filter by severity">
+        <option value="">All severities</option>
+        <option value="info">Info</option>
+        <option value="warning">Warning</option>
+        <option value="critical">Critical</option>
+      </select>
+      <select class="form-select" id="activity-filter-category" aria-label="Filter by category">
+        <option value="">All categories</option>
+        <option value="camera">Camera</option>
+        <option value="stream">Stream</option>
+        <option value="config">Config</option>
+        <option value="layout">Layout</option>
+        <option value="system">System</option>
+        <option value="analytics">Analytics</option>
+      </select>
+      <select class="form-select" id="activity-filter-time" aria-label="Filter by time range">
+        <option value="">Any time</option>
+        <option value="1h">Last hour</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+      </select>
+    </div>
+  </div>
+  <div class="drawer-feed" id="activity-feed" aria-live="polite"></div>
+  <div class="drawer-empty" id="activity-empty" hidden>No activity yet.</div>
+  <div class="drawer-footer">
+    <button class="btn btn-secondary btn-sm" id="activity-export-btn">Export JSON</button>
+    <button class="btn btn-secondary btn-sm" id="activity-markread-btn">Mark all read</button>
+    <button class="btn btn-danger btn-sm" id="activity-clear-btn">Clear</button>
+  </div>
+</aside>
+
+<script src="/js/stream-adapter.js"></script>
+<script src="/js/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# ── Dependencies (restore with: npm install) ──
+node_modules/
+
+# ── Local secrets & config ──
+.env
+
+# ── go2rtc binary (download per-OS) & generated config ──
+bin/go2rtc
+bin/go2rtc.exe
+go2rtc.yaml
+
+# ── Logs ──
+*.log
+
+# ── Backups (auto-saved *.bak.<timestamp> snapshots) ──
+*.bak
+*.bak.*
+
+# ── Archives / large datasheet bundles ──
+*.zip
+
+# ── OS / editor cruft ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

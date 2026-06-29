@@ -1,0 +1,15 @@
+{
+  "name": "engine-cctv",
+  "version": "1.0.0",
+  "description": "Unified CCTV streaming engine with WebRTC and MJPEG support",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": ["cctv", "rtsp", "webrtc", "mjpeg", "streaming", "go2rtc", "ffmpeg"],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.0.0"
+  }
+}
