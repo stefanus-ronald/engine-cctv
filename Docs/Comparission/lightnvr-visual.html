@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LightNVR — Riset & Ringkasan Visual | Project Engine CCTV</title>
+<style>
+  :root{
+    --bg:#0b1120; --bg2:#111a2e; --card:#16213e; --card2:#1c2a4a;
+    --accent:#3b82f6; --accent2:#22d3ee; --green:#22c55e; --amber:#f59e0b;
+    --rose:#f43f5e; --purple:#a855f7; --text:#e2e8f0; --muted:#94a3b8;
+    --border:#27324d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:linear-gradient(160deg,#0b1120 0%,#0d1428 100%);
+    color:var(--text); line-height:1.65; font-size:15px;
+  }
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+  /* HERO */
+  header.hero{
+    background:radial-gradient(1200px 400px at 50% -50px,rgba(59,130,246,.25),transparent),
+               linear-gradient(180deg,#0e1730,#0b1120);
+    border-bottom:1px solid var(--border); padding:70px 0 50px; text-align:center;
+  }
+  .badge{display:inline-block;background:rgba(34,197,94,.15);color:var(--green);
+    border:1px solid rgba(34,197,94,.35);padding:5px 14px;border-radius:30px;
+    font-size:12px;font-weight:600;letter-spacing:.5px;margin-bottom:18px}
+  header.hero h1{font-size:48px;font-weight:800;letter-spacing:-1px;
+    background:linear-gradient(90deg,#60a5fa,#22d3ee);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;background-clip:text}
+  header.hero p.sub{color:var(--muted);font-size:18px;margin-top:12px;max-width:720px;margin-left:auto;margin-right:auto}
+  .meta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+  .meta-chip{background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:10px 18px;font-size:13px}
+  .meta-chip b{color:#fff;display:block;font-size:20px;font-weight:700}
+  .meta-chip span{color:var(--muted);font-size:12px}
+
+  /* NAV */
+  nav.toc{position:sticky;top:0;z-index:50;background:rgba(11,17,32,.92);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:12px 0}
+  nav.toc .wrap{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  nav.toc a{color:var(--muted);font-size:13px;font-weight:600;padding:6px 14px;
+    border-radius:8px;transition:.2s}
+  nav.toc a:hover{background:var(--card);color:#fff;text-decoration:none}
+
+  section{padding:54px 0 10px}
+  h2.sec{font-size:30px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+  h2.sec .ic{font-size:30px}
+  .sec-desc{color:var(--muted);margin-bottom:26px;font-size:16px}
+
+  /* CARDS GRID */
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:22px;transition:.25s}
+  .card:hover{border-color:var(--accent);transform:translateY(-3px);
+    box-shadow:0 12px 30px rgba(0,0,0,.4)}
+  .card h3{font-size:17px;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px}
+  .card p{color:var(--muted);font-size:14px}
+  .card .tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;
+    border-radius:6px;margin-top:10px}
+  .t-blue{background:rgba(59,130,246,.18);color:#60a5fa}
+  .t-green{background:rgba(34,197,94,.18);color:#4ade80}
+  .t-amber{background:rgba(245,158,11,.18);color:#fbbf24}
+  .t-purple{background:rgba(168,85,247,.18);color:#c084fc}
+
+  /* IMAGE GALLERY */
+  .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media(max-width:900px){.gallery{grid-template-columns:1fr}}
+  figure{background:var(--card);border:1px solid var(--border);border-radius:14px;
+    overflow:hidden;margin:0;cursor:pointer;transition:.25s}
+  figure:hover{border-color:var(--accent2);transform:translateY(-3px)}
+  figure img{width:100%;display:block;background:#000;aspect-ratio:16/9;object-fit:cover}
+  figure figcaption{padding:12px 16px;font-size:13px;color:var(--muted)}
+  figure figcaption b{color:#fff;display:block;font-size:14px;margin-bottom:2px}
+  .arch-fig img{aspect-ratio:auto;object-fit:contain;padding:18px;background:#fff}
+
+  /* TABLE */
+  table{width:100%;border-collapse:collapse;background:var(--card);
+    border-radius:12px;overflow:hidden;font-size:14px;border:1px solid var(--border)}
+  th{background:var(--card2);text-align:left;padding:13px 16px;font-size:13px;
+    color:#fff;font-weight:700}
+  td{padding:12px 16px;border-top:1px solid var(--border);color:var(--muted)}
+  td b{color:var(--text)}
+  .ok{color:var(--green);font-weight:700}
+  .no{color:var(--rose);font-weight:700}
+  .warn{color:var(--amber);font-weight:700}
+
+  /* FLOW */
+  .flow{background:#0a0f1f;border:1px solid var(--border);border-radius:14px;
+    padding:26px;font-family:'Consolas',monospace;font-size:13px;color:#9fb3d1;
+    overflow-x:auto;white-space:pre;line-height:1.5}
+
+  /* CALLOUT */
+  .callout{border-radius:12px;padding:18px 22px;margin:14px 0;border-left:4px solid}
+  .c-warn{background:rgba(245,158,11,.08);border-color:var(--amber)}
+  .c-good{background:rgba(34,197,94,.08);border-color:var(--green)}
+  .c-info{background:rgba(59,130,246,.08);border-color:var(--accent)}
+  .callout b{color:#fff}
+
+  ul.clean{list-style:none;margin-top:10px}
+  ul.clean li{padding:7px 0 7px 28px;position:relative;color:var(--muted)}
+  ul.clean li:before{content:"▹";position:absolute;left:6px;color:var(--accent2)}
+  ul.clean li b{color:var(--text)}
+
+  .pill{display:inline-block;background:var(--card2);border:1px solid var(--border);
+    border-radius:7px;padding:4px 10px;font-size:12px;font-family:monospace;
+    color:#7dd3fc;margin:3px 3px 3px 0}
+
+  footer{margin-top:60px;border-top:1px solid var(--border);padding:30px 0;
+    text-align:center;color:var(--muted);font-size:13px}
+
+  /* LIGHTBOX */
+  .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;
+    align-items:center;justify-content:center;z-index:100;padding:30px;cursor:zoom-out}
+  .lb.on{display:flex}
+  .lb img{max-width:95%;max-height:95%;border-radius:8px;box-shadow:0 0 60px rgba(0,0,0,.8)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge">● RISET INTERNAL — PROJECT ENGINE CCTV</span>
+    <h1>LightNVR</h1>
+    <p class="sub">Network Video Recorder ringan berbasis C — analisis arsitektur, fitur, dan pelajaran untuk engine CCTV kita</p>
+    <div class="meta-row">
+      <div class="meta-chip"><b>~128k</b><span>baris kode C</span></div>
+      <div class="meta-chip"><b>174</b><span>file .c</span></div>
+      <div class="meta-chip"><b>42</b><span>migrasi DB</span></div>
+      <div class="meta-chip"><b>256MB</b><span>RAM minimum</span></div>
+      <div class="meta-chip"><b>GPLv3</b><span>lisensi</span></div>
+    </div>
+    <p style="margin-top:24px;font-size:14px;color:var(--muted)">
+      Repo: <a href="https://github.com/opensensor/lightNVR" target="_blank">github.com/opensensor/lightNVR</a>
+    </p>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#overview">Ringkasan</a>
+    <a href="#arch">Arsitektur</a>
+    <a href="#gallery">Screenshot</a>
+    <a href="#features">Fitur</a>
+    <a href="#detection">Detection AI</a>
+    <a href="#stack">Tech Stack</a>
+    <a href="#compare">Perbandingan</a>
+    <a href="#engine" style="color:#4ade80">★ Engine Kita</a>
+    <a href="#roadmap" style="color:#4ade80">★ Roadmap</a>
+    <a href="#takeaway">Pelajaran</a>
+    <a href="#license">Lisensi</a>
+  </div>
+</nav>
+
+<!-- OVERVIEW -->
+<section id="overview">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">📋</span> Apa itu LightNVR?</h2>
+    <p class="sec-desc">NVR (Network Video Recorder) open-source ditulis dalam C, dioptimalkan untuk perangkat hemat memori (awalnya Ingenic A1 SoC, RAM 256MB) tapi jalan di Linux apa saja.</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>🎯 Smart Detection</h3>
+        <p>Detection zone berbasis poligon, integrasi object detection (ONNX/TFLite/SOD), ONVIF motion events, recording berbasis deteksi.</p>
+        <span class="tag t-blue">AI / CV</span>
+      </div>
+      <div class="card">
+        <h3>📺 Streaming Modern</h3>
+        <p>WebRTC latency sub-detik + HLS untuk kompatibilitas, dapat di-toggle. Overlay deteksi real-time dengan bounding box.</p>
+        <span class="tag t-green">go2rtc</span>
+      </div>
+      <div class="card">
+        <h3>🪶 Sangat Ringan</h3>
+        <p>Jalan di SBC / SoC dengan RAM 256MB. Staggered init, JPEG-based detection, stream prioritization, swap support.</p>
+        <span class="tag t-amber">Embedded</span>
+      </div>
+      <div class="card">
+        <h3>🔐 Keamanan</h3>
+        <p>Session token, TOTP/MFA (RFC 6238), role-based access (admin/user/viewer), API key, password hashing mbedTLS.</p>
+        <span class="tag t-purple">Auth</span>
+      </div>
+      <div class="card">
+        <h3>💾 Storage Cerdas</h3>
+        <p>Retention berlapis 4 tier, recording protected, disk space management otomatis, retention beda untuk deteksi vs terjadwal.</p>
+        <span class="tag t-blue">Retention</span>
+      </div>
+      <div class="card">
+        <h3>🔌 Integrasi</h3>
+        <p>MQTT untuk Home Assistant, ONVIF auto-discovery + PTZ, REST API 60+ endpoint, reverse proxy + HTTPS ready.</p>
+        <span class="tag t-green">Open API</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="arch">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">🧱</span> Arsitektur Inti</h2>
+    <p class="sec-desc">Insight terpenting: LightNVR <b style="color:#fff">tidak</b> menangani koneksi kamera sendiri — semua I/O kamera didelegasikan ke <b style="color:#22d3ee">go2rtc</b> (proses Go terpisah yang di-spawn & dimonitor).</p>
+
+    <div class="flow">Kamera (RTSP/ONVIF)
+       │
+       ▼
+   ┌─────────┐   WebRTC ──▶ Browser (live, latency sub-detik)
+   │ go2rtc  │   HLS    ──▶ LightNVR HLS Writer ──▶ segmen .ts
+   │ :1984   │   RTSP   ──▶ LightNVR MP4 Recorder ──▶ file .mp4
+   └─────────┘   frame.jpeg ──▶ Detection (JPEG snapshot, hemat memori)
+       │
+       ▼
+   SQLite (metadata: streams, recordings, detections, zones, users)
+       │
+       ▼
+   Storage: /var/lib/lightnvr/data  (recordings/mp4, recordings/hls, db)</div>
+
+    <div class="gallery" style="margin-top:24px">
+      <figure class="arch-fig" onclick="zoom(this)">
+        <img src="images/arch-overall.svg" alt="Arsitektur keseluruhan">
+        <figcaption><b>Arsitektur Keseluruhan</b>Web UI · API · Core · go2rtc · Detection service</figcaption>
+      </figure>
+      <figure class="arch-fig" onclick="zoom(this)">
+        <img src="images/arch-thread.svg" alt="Arsitektur thread">
+        <figcaption><b>Model Thread</b>Layout thread & worker untuk core service (15–30 thread)</figcaption>
+      </figure>
+      <figure class="arch-fig" onclick="zoom(this)">
+        <img src="images/arch-state.svg" alt="State machine">
+        <figcaption><b>State Management</b>State machine untuk stream & recording</figcaption>
+      </figure>
+      <figure onclick="zoom(this)">
+        <img src="images/System.png" alt="System">
+        <figcaption><b>System Overview</b>Tampilan arsitektur sistem nyata</figcaption>
+      </figure>
+    </div>
+
+    <div class="callout c-info" style="margin-top:24px">
+      <b>🔑 Pola registrasi multi-source:</b> setiap stream didaftarkan ke go2rtc dengan 3 source sekaligus — URL kamera asli, ffmpeg transcode audio→OPUS (WebRTC butuh OPUS bukan AAC), dan ffmpeg transcode video→H.264 (browser tak support WebRTC H.265).
+    </div>
+  </div>
+</section>
+
+<!-- GALLERY -->
+<section id="gallery">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">📸</span> Screenshot Antarmuka</h2>
+    <p class="sec-desc">Tampilan web UI nyata (Preact + Tailwind). Klik gambar untuk perbesar.</p>
+    <div class="gallery">
+      <figure onclick="zoom(this)"><img src="images/live-streams.png"><figcaption><b>Live View — WebRTC</b>Grid multi-kamera latency rendah</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/detection-overlay.png"><figcaption><b>Detection Overlay</b>Bounding box real-time di atas video</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/zone-editor-demo.png"><figcaption><b>Zone Editor</b>Editor poligon visual untuk area deteksi</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/stream-config-zones.png"><figcaption><b>Konfigurasi Zona</b>Setting detection zone per stream</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/recording-management.png"><figcaption><b>Recording Management</b>Browser & manajemen rekaman</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/recording-playback.png"><figcaption><b>Playback</b>Pemutar video dengan timeline scrubbing</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/stream-management.png"><figcaption><b>Stream Management</b>Daftar & pengelolaan kamera</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/stream-config-detection.png"><figcaption><b>Config Detection</b>Pengaturan detection-based recording</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/settings-management.png"><figcaption><b>Settings</b>Pengaturan sistem</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/system-info.png"><figcaption><b>System Info</b>Dashboard CPU, memori, storage</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/live-streams-hls.png"><figcaption><b>Live View — HLS</b>Mode kompatibilitas luas</figcaption></figure>
+      <figure onclick="zoom(this)"><img src="images/theme-selector.png"><figcaption><b>Tema Kustom</b>7 tema warna + dark/light mode</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">⭐</span> Fitur Utama Relevan</h2>
+    <p class="sec-desc">Fitur yang paling relevan untuk dipelajari bagi engine CCTV kita.</p>
+    <table>
+      <tr><th>Fitur</th><th>Detail Teknis (terverifikasi dari kode)</th></tr>
+      <tr><td><b>Detection Zones</b></td><td>Poligon koordinat normalized 0–1, algoritma ray-casting, filter per-class + threshold confidence per-zona</td></tr>
+      <tr><td><b>Dual Streaming</b></td><td>WebRTC (~1–3 detik) · MSE (~2–4 detik) · HLS (~6–10 detik), toggle on-the-fly</td></tr>
+      <tr><td><b>4 Mode Recording</b></td><td>None · Continuous · Detection-only · Annotation mode (continuous + deteksi di-link via recording_id)</td></tr>
+      <tr><td><b>Pre-Detection Buffer</b></td><td>Circular buffer AVPacket, rekam beberapa detik <b>sebelum</b> event (~1MB/stream untuk 720p@15fps 5 detik)</td></tr>
+      <tr><td><b>Retention 4 Tier</b></td><td>Critical 3.0× · Important 2.0× · Standard 1.0× · Ephemeral 0.25× + recording protected (tak pernah auto-delete)</td></tr>
+      <tr><td><b>ONVIF</b></td><td>Auto-discovery, motion events (WS-Security SOAP), PTZ control (pan-tilt-zoom + preset)</td></tr>
+      <tr><td><b>MQTT</b></td><td>Publish event deteksi, Home Assistant auto-discovery, motion state dengan timeout 30 detik</td></tr>
+      <tr><td><b>Auth & Security</b></td><td>Session + API key + Basic Auth, TOTP/MFA (RFC 6238), RBAC, rate limit login 5×/15 menit</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- DETECTION -->
+<section id="detection">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">🤖</span> Subsistem Detection AI</h2>
+    <p class="sec-desc">Satu <b style="color:#fff">unified detection thread per stream</b> dengan state machine, mendukung 3 backend yang bisa di-switch per kamera.</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>🔹 SOD (Embedded)</h3>
+        <p>Linked langsung ke binary. RealNet (face, ringan) / CNN (PASCAL VOC 20 class). Cocok untuk device kecil/offline.</p>
+        <span class="tag t-amber">On-device</span>
+      </div>
+      <div class="card">
+        <h3>🔹 TFLite / LiteRT</h3>
+        <p>In-process, footprint sedang. Conditional compile <span class="pill">-DHAVE_LITERT</span> dengan delegate XNNPACK.</p>
+        <span class="tag t-blue">In-process</span>
+      </div>
+      <div class="card">
+        <h3>🔹 HTTP API</h3>
+        <p>light-object-detect eksternal. POST JPEG → terima JSON. Memisahkan beban AI dari core → paling scalable.</p>
+        <span class="tag t-green">Scalable</span>
+      </div>
+    </div>
+    <div class="callout c-good" style="margin-top:20px">
+      <b>💡 Kunci hemat memori:</b> detection mengambil <b>JPEG snapshot</b> dari go2rtc (<span class="pill">/api/frame.jpeg?src=X&cache=30s</span>) — <b>bukan</b> decode full video. Param cache 30 detik bikin tetap dapat frame walau kamera sempat disconnect.
+    </div>
+    <div class="flow" style="margin-top:14px">State machine detection thread:
+
+INITIALIZING → CONNECTING → BUFFERING → RECORDING → POST_BUFFER → (kembali BUFFERING)
+                              │            ▲
+                              │ deteksi    │ flush pre-buffer ke MP4
+                              └────────────┘  (dapat footage SEBELUM event)</div>
+  </div>
+</section>
+
+<!-- STACK -->
+<section id="stack">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">⚙️</span> Tech Stack & Dependencies</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>🔧 Core (C)</h3>
+        <p style="margin-bottom:10px">Wajib:</p>
+        <span class="pill">FFmpeg ≥61</span><span class="pill">SQLite3</span><span class="pill">libcurl</span>
+        <span class="pill">libuv</span><span class="pill">llhttp</span><span class="pill">cJSON</span>
+        <span class="pill">mbedTLS</span><span class="pill">pthread</span>
+        <p style="margin:12px 0 10px">Opsional:</p>
+        <span class="pill">libyaml</span><span class="pill">libmosquitto</span><span class="pill">SOD</span><span class="pill">LiteRT</span>
+      </div>
+      <div class="card">
+        <h3>🎨 Frontend</h3>
+        <p style="margin-bottom:10px">SPA multi-page (9 entry HTML):</p>
+        <span class="pill">Preact</span><span class="pill">Tailwind CSS</span><span class="pill">Vite</span>
+        <span class="pill">@tanstack/query</span><span class="pill">HLS.js</span><span class="pill">webrtc-adapter</span>
+        <p style="margin:12px 0 0;color:var(--muted)">HTTP server: libuv + llhttp event loop, thread pool 2× CPU core. Migrasi dari Mongoose di v0.20.</p>
+      </div>
+      <div class="card">
+        <h3>📡 Streaming</h3>
+        <p>go2rtc (fork opensensor, branch dev) — static Go binary, di-spawn via fork/execl. Handle RTSP, WebRTC, HLS, frame extraction.</p>
+        <span class="tag t-green">Backbone</span>
+      </div>
+      <div class="card">
+        <h3>🐳 Deployment</h3>
+        <p>Multi-stage Docker (builder Debian → runtime minimal). Port: 8080 web · 8554 RTSP · 8555 WebRTC · 1984 go2rtc API.</p>
+        <span class="tag t-blue">Docker / systemd</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section id="compare">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">🆚</span> LightNVR vs Solusi Lain</h2>
+    <table>
+      <tr><th>Aspek</th><th>LightNVR</th><th>NVR Tradisional</th><th>Cloud</th></tr>
+      <tr><td><b>Memory footprint</b></td><td class="ok">256MB min</td><td>2GB+ tipikal</td><td>N/A</td></tr>
+      <tr><td><b>Detection zones</b></td><td class="ok">✅ Editor poligon</td><td class="warn">⚠ Grid/none</td><td class="ok">✅ Bervariasi</td></tr>
+      <tr><td><b>WebRTC sub-detik</b></td><td class="ok">✅ Ya</td><td class="warn">⚠ Sering RTSP saja</td><td class="ok">✅ Ya</td></tr>
+      <tr><td><b>Object detection</b></td><td class="ok">✅ ONNX/TFLite/SOD</td><td class="warn">⚠ Proprietary</td><td class="ok">✅ Umumnya ada</td></tr>
+      <tr><td><b>Privasi</b></td><td class="ok">✅ 100% lokal</td><td class="ok">✅ Lokal</td><td class="no">❌ Ke cloud</td></tr>
+      <tr><td><b>Biaya</b></td><td class="ok">✅ Gratis & open</td><td class="warn">💰 $200–2000+</td><td class="warn">💰 $10–50/bln/cam</td></tr>
+      <tr><td><b>Source code</b></td><td class="ok">✅ Penuh (GPLv3)</td><td class="no">❌ Tertutup</td><td class="no">❌ Terbatas API</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ENGINE COMPARISON -->
+<section id="engine">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">⚖️</span> Engine CCTV Kita vs LightNVR</h2>
+    <p class="sec-desc">Kabar baik: <b style="color:#4ade80">ENGINE-CCTV kita sudah memakai backbone yang sama (go2rtc + FFmpeg)</b>. Jadi banyak pola LightNVR bisa diadopsi tanpa ganti fondasi. Perbedaannya ada di fokus & cakupan fitur.</p>
+
+    <div class="callout c-good">
+      <b>🟢 ENGINE-CCTV (kita)</b> — Node.js · MIT · zero-framework. Fokus <b>Hikvision ISAPI</b>: live WebRTC/MJPEG, playback dari NVR, deteksi hardware kamera (line-crossing, intrusion, face), NVR auto-sync semua channel, baca status HDD/SD. <b>Tidak rekam sendiri</b> — mengandalkan storage NVR.
+    </div>
+
+    <table>
+      <tr><th>Aspek</th><th>🟢 ENGINE-CCTV (kita)</th><th>🔵 LightNVR</th></tr>
+      <tr><td><b>Bahasa</b></td><td>Node.js (zero-build)</td><td>C (~128k baris)</td></tr>
+      <tr><td><b>Lisensi</b></td><td class="ok">MIT (bebas komersial)</td><td class="warn">GPLv3</td></tr>
+      <tr><td><b>Streaming backbone</b></td><td class="ok">go2rtc ✅ (sama!)</td><td class="ok">go2rtc ✅</td></tr>
+      <tr><td><b>Fallback live</b></td><td>MJPEG (FFmpeg)</td><td>HLS</td></tr>
+      <tr><td><b>Target kamera</b></td><td>Hikvision (ISAPI native, mendalam)</td><td>Generic RTSP/ONVIF</td></tr>
+      <tr><td><b>Deteksi</b></td><td class="warn">Hardware kamera (ISAPI) — kamera yang deteksi</td><td class="ok">AI on-frame (SOD/TFLite/API) + zona + ONVIF</td></tr>
+      <tr><td><b>Recording</b></td><td>Tidak rekam — andalkan NVR</td><td>Rekam MP4/HLS sendiri ke disk</td></tr>
+      <tr><td><b>Playback</b></td><td class="ok">Dari NVR langsung (ISAPI ContentMgmt)</td><td>Dari rekaman sendiri</td></tr>
+      <tr><td><b>Database</b></td><td>File JSON (cameras.json, nvrs.json)</td><td>SQLite (42 migrasi)</td></tr>
+      <tr><td><b>Frontend</b></td><td>Vanilla JS SPA</td><td>Preact + Tailwind + Vite</td></tr>
+      <tr><td><b>Auth</b></td><td class="warn">Token opsional (LAN)</td><td class="ok">Session + TOTP/MFA + RBAC</td></tr>
+      <tr><td><b>Zona deteksi</b></td><td class="no">❌ Belum ada</td><td class="ok">✅ Editor poligon</td></tr>
+      <tr><td><b>MQTT / Home Assistant</b></td><td class="no">❌ Belum ada</td><td class="ok">✅ Ada</td></tr>
+      <tr><td><b>Target perangkat</b></td><td>Desktop/server LAN</td><td>Embedded 256MB+</td></tr>
+    </table>
+
+    <div class="grid g2" style="margin-top:20px">
+      <div class="card" style="border-color:rgba(34,197,94,.4)">
+        <h3 style="color:#4ade80">💪 Kekuatan kita (pertahankan)</h3>
+        <ul class="clean">
+          <li><b>ISAPI mendalam</b> — line-crossing arah panah, sensitivity, capabilities probe (LightNVR tak punya)</li>
+          <li><b>NVR auto-sync</b> — import semua channel otomatis dari recorder</li>
+          <li><b>Playback dari NVR</b> — tidak perlu rekam ulang, hemat storage besar</li>
+          <li><b>MIT + Node.js</b> — bebas komersial, jauh lebih mudah dikembangkan/diaudit</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(59,130,246,.4)">
+        <h3 style="color:#60a5fa">🎯 Yang bisa kita serap dari LightNVR</h3>
+        <ul class="clean">
+          <li><b>AI object detection on-frame</b> — person/car/dll, bukan cuma deteksi hardware kamera</li>
+          <li><b>Zona deteksi poligon</b> — kurangi false positive</li>
+          <li><b>Pre-detection buffer</b> + recording independen (opsional)</li>
+          <li><b>MQTT → Home Assistant</b>, SQLite metadata, auth hardening</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">🛠️</span> Roadmap Implementasi ke Engine Kita</h2>
+    <p class="sec-desc">Urutan adopsi berdasarkan nilai vs effort. Semua <b>hanya meniru pola/ide</b> (legal) — bukan menyalin kode GPLv3. Karena kita sudah punya go2rtc + <code style="color:#7dd3fc">vca-proxy.js</code>, beberapa fitur tinggal dirangkai.</p>
+
+    <!-- Priority 1 -->
+    <div class="card" style="border-left:4px solid var(--green);margin-bottom:16px">
+      <h3 style="color:#4ade80">① AI Object Detection on-frame <span class="tag t-green" style="margin-left:8px">PRIORITAS TINGGI · effort rendah</span></h3>
+      <p style="margin-bottom:10px">Saat ini deteksi kita 100% mengandalkan hardware kamera (ISAPI). Tambahkan deteksi AI server-side (person/car/dll) — fondasinya <b>sudah ada semua</b> di engine kita.</p>
+      <div class="flow" style="margin:10px 0">Pola LightNVR (terbukti hemat resource):
+
+go2rtc /api/frame.jpeg?src=ID&cache=30s   ──▶  JPEG (tanpa decode video penuh)
+        │
+        ▼
+POST ke layanan AI Python  ──▶  JSON {label, confidence, bbox}
+        │                        (kita SUDAH punya vca-proxy.js!)
+        ▼
+SSE broadcaster  ──▶  overlay bounding box di tile  (kita SUDAH punya SSE!)</div>
+      <p><b>Cara di engine kita:</b> buat modul <span class="pill">src/detection/ai-detection.js</span> — interval per kamera ambil snapshot dari go2rtc (kita sudah jalankan go2rtc), kirim ke <span class="pill">vca/vca-proxy.js</span> (Python AI), hasilnya lewatkan ke <span class="pill">events/sse-broadcaster.js</span> yang sudah dipakai untuk alert ISAPI. Overlay di <span class="pill">public/js/app.js</span> sudah ada untuk ISAPI — tinggal pakai ulang.</p>
+    </div>
+
+    <!-- Priority 2 -->
+    <div class="card" style="border-left:4px solid var(--accent2);margin-bottom:16px">
+      <h3 style="color:#22d3ee">② Zona Deteksi Poligon <span class="tag t-blue" style="margin-left:8px">PRIORITAS TINGGI · effort sedang</span></h3>
+      <p style="margin-bottom:10px">Filter deteksi per-area agar tidak ada false positive (mis. hanya "person" di pintu, abaikan jalan raya).</p>
+      <p><b>Cara di engine kita:</b> simpan poligon (koordinat normalized 0–1) per kamera di <span class="pill">cameras.json</span> field <span class="pill">detection.zones[]</span>. Filter pakai algoritma <b>ray-casting</b> point-in-polygon (LightNVR <span class="pill">zone_filter.c</span>) di modul AI detection. Editor poligon: tambahkan canvas overlay di settings modal <span class="pill">public/js/app.js</span> (kita sudah punya modal settings). Berlaku untuk AI detection maupun memfilter alert ISAPI.</p>
+    </div>
+
+    <!-- Priority 3 -->
+    <div class="card" style="border-left:4px solid var(--purple);margin-bottom:16px">
+      <h3 style="color:#c084fc">③ MQTT → Home Assistant <span class="tag t-purple" style="margin-left:8px">PRIORITAS SEDANG · effort rendah</span></h3>
+      <p><b>Cara di engine kita:</b> tambah dependency <span class="pill">mqtt</span> (npm), modul <span class="pill">src/integrations/mqtt-client.js</span>. Publish event deteksi (ISAPI + AI) ke broker dengan topic <span class="pill">cctv/{camera}/detection</span> + HA auto-discovery + motion state timeout 30s (pola LightNVR <span class="pill">mqtt_client.c</span>). Memungkinkan otomasi rumah/kantor dari event CCTV.</p>
+    </div>
+
+    <!-- Priority 4 -->
+    <div class="card" style="border-left:4px solid var(--amber);margin-bottom:16px">
+      <h3 style="color:#fbbf24">④ Recording Independen + Retention 4-Tier <span class="tag t-amber" style="margin-left:8px">OPSIONAL · effort tinggi</span></h3>
+      <p style="margin-bottom:10px">Hanya jika butuh rekaman <b>tidak bergantung NVR</b> (mis. kamera IP tanpa NVR, atau backup kritikal). Untuk mayoritas kasus, andalkan NVR tetap lebih hemat.</p>
+      <p><b>Cara di engine kita:</b> rekam dari RTSP go2rtc (<span class="pill">rtsp://localhost:8554/ID</span>) via FFmpeg <span class="pill">-c copy</span> ke MP4 tersegmen. Adopsi <b>pre-detection buffer</b> (circular buffer, rekam ~5 dtk sebelum event) dan <b>retention 4-tier</b> (Critical 3× / Important 2× / Standard 1× / Ephemeral 0.25× + protected). Butuh <b>SQLite</b> untuk index recording.</p>
+    </div>
+
+    <!-- Priority 5 -->
+    <div class="card" style="border-left:4px solid var(--muted);margin-bottom:16px">
+      <h3 style="color:#cbd5e1">⑤ Hardening: SQLite, Auth, Health Monitor <span class="tag t-blue" style="margin-left:8px">SAAT SCALE NAIK</span></h3>
+      <ul class="clean">
+        <li><b>SQLite</b> — ganti JSON files saat data deteksi/recording membesar (query & histori lebih kuat). Pola migrasi versioned LightNVR.</li>
+        <li><b>Auth</b> — TOTP/MFA + RBAC (admin/user/viewer), rate-limit login. Saat ini token opsional saja.</li>
+        <li><b>Health monitor consensus</b> — restart go2rtc berdasarkan "&gt;50% stream gagal", cooldown 120s (lebih pintar dari health check sederhana).</li>
+      </ul>
+    </div>
+
+    <div class="callout c-info">
+      <b>📌 Ringkas:</b> Karena engine kita <b>sudah berbagi fondasi go2rtc + punya SSE + punya vca-proxy ke Python AI</b>, item ① & ② bisa dikerjakan cepat dan memberi lompatan fitur terbesar (deteksi AI cerdas + zona) tanpa mengubah arsitektur. Item ④ hanya kalau strategi storage berubah dari "andalkan NVR" ke "rekam sendiri".
+    </div>
+  </div>
+</section>
+
+<!-- TAKEAWAY -->
+<section id="takeaway">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">💡</span> Pelajaran untuk Engine CCTV Kita</h2>
+    <div class="grid g2">
+      <div class="card" style="border-color:rgba(34,197,94,.4)">
+        <h3 style="color:#4ade80">✅ Layak Diadopsi</h3>
+        <ul class="clean">
+          <li><b>Pola "go2rtc sebagai backbone"</b> — jangan reinvent RTSP/WebRTC/ICE, ini keputusan arsitektur terbaik mereka</li>
+          <li><b>Detection via HTTP API eksternal</b> — pisahkan beban AI dari core, mudah scaling/ganti model</li>
+          <li><b>JPEG snapshot untuk detection</b> — bukan decode video, hemat memori & CPU drastis</li>
+          <li><b>Skema DB + retention 4 tier</b> — blueprint matang, bisa jadi referensi tabel kita</li>
+          <li><b>Shutdown coordinator</b> — shutdown berurutan by-priority, atomic + condition variable</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(245,158,11,.4)">
+        <h3 style="color:#fbbf24">⚠️ Perlu Diwaspadai</h3>
+        <ul class="clean">
+          <li><b>Lisensi GPLv3</b> — aman untuk belajar pola, TIDAK aman copy-paste kode ke produk proprietary tanpa commercial license</li>
+          <li><b>Codebase C low-level</b> — manual thread/mutex/FFmpeg, maintenance berat</li>
+          <li><b>Fokus embedded 256MB</b> — beberapa optimasi kurang relevan kalau target kita server besar / banyak kamera</li>
+          <li><b>Docker volume gotcha</b> — jangan mount /var/lib/lightnvr langsung (menimpa web assets)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LICENSE -->
+<section id="license">
+  <div class="wrap">
+    <h2 class="sec"><span class="ic">⚖️</span> Catatan Lisensi (PENTING)</h2>
+    <div class="callout c-warn">
+      <b>GPLv3 + opsi Commercial License (OpenSensor Engineering).</b><br><br>
+      ✅ <b>Aman:</b> mempelajari arsitektur, pola desain, dan ide implementasi untuk engine kita.<br>
+      ❌ <b>Tidak aman:</b> menyalin/menurunkan kode LightNVR ke produk proprietary/tertutup tanpa membeli commercial license.<br><br>
+      <b>Rekomendasi:</b> kalau engine CCTV kita mau closed-source, replikasi <i>ide & pola</i>-nya — jangan <i>kode</i>-nya. go2rtc sendiri berlisensi MIT (lebih permisif) sehingga aman dipakai sebagai backbone.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Riset internal Project Engine CCTV · Dibuat 29 Juni 2026 · Sumber: <a href="https://github.com/opensensor/lightNVR" target="_blank">opensensor/lightNVR</a></p>
+    <p style="margin-top:8px">Gambar & diagram diambil dari <code style="color:#7dd3fc">docs/images/</code> repo (GPLv3). Lihat juga <a href="RINGKASAN.md">RINGKASAN.md</a> untuk detail teknis lengkap.</p>
+  </div>
+</footer>
+
+<div class="lb" id="lb" onclick="this.classList.remove('on')"><img id="lbimg" src=""></div>
+<script>
+  function zoom(fig){
+    var img=fig.querySelector('img');
+    document.getElementById('lbimg').src=img.src;
+    document.getElementById('lb').classList.add('on');
+  }
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape')document.getElementById('lb').classList.remove('on');
+  });
+</script>
+</body>
+</html>

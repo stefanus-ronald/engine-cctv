@@ -71,66 +71,36 @@ async function isapiPost(ip, port, uri, user, pass, xmlBody) {
 }
 
 // ─── Device time convention / display offset ─────────────────────────────
-// Hikvision devices are INCONSISTENT about playback-search times:
+// Hikvision devices are INCONSISTENT about playback-search times — and BOTH
+// conventions tag the timestamp with a bare "Z":
 //   • NVR (e.g. DS-7616NI): returns LOCAL wall-clock numerals tagged "Z".
-//   • IP cameras (verified): return TRUE UTC tagged "Z".
-// The on-screen OSD is ALWAYS local time. To make the UI match the OSD on every
-// device, we compute a per-device "display offset" (minutes to ADD to the
-// device's search numerals to get local wall-clock):
-//   • local-convention device  → offset 0   (numerals already local)
-//   • UTC-convention device     → offset = device tz offset (e.g. +420)
-// The frontend then works purely in local wall-clock; this module converts to
-// the device's convention for requests and back for results.
+//   • IP cameras (verified): return TRUE UTC numerals tagged "Z".
+// The on-screen OSD / HDD-management clock is ALWAYS the local wall-clock. The
+// app is pinned to Indonesia time (WIB, UTC+7), so we compute a per-device
+// "display offset" = minutes to ADD to the device's search numerals to get WIB
+// wall-clock:
+//   • local-convention device (NVR)     → offset 0    (numerals already WIB)
+//   • UTC-convention device (IP camera)  → offset +420 (UTC → WIB, fixed +7h)
+//
+// We DELIBERATELY use a fixed +420 (WIB) instead of reading the device's own
+// timezone field: many cameras ship with a blank/wrong tz, which is exactly what
+// left "new devices" 7 hours behind the OSD. The two conventions are told apart
+// by probing the latest recording (the only reliable signal, since the "Z" tag
+// is identical for both). The frontend works purely in WIB wall-clock; this
+// module converts to the device convention for requests and back for results.
 
-const TIME_URI = '/ISAPI/System/time';
+// Indonesia Western Standard Time (WIB) = UTC+7. Fixed, per project requirement.
+const WIB_OFFSET_MIN = 7 * 60;               // 420
 const _offsetCache = new Map();              // "ip:port" -> { offsetMin, at }
 const OFFSET_TTL_MS = 30 * 60 * 1000;
 
-function httpGetRaw(host, port, uri, authHeader) {
-  return new Promise((resolve) => {
-    const headers = {};
-    if (authHeader) headers['Authorization'] = authHeader;
-    const req = http.request({ hostname: host, port, path: uri, method: 'GET', headers, timeout: TIMEOUT_MS }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('error', () => resolve({ statusCode: 0, headers: {}, body: '' }));
-      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() }));
-    });
-    req.on('timeout', () => { req.destroy(); resolve({ statusCode: 0, headers: {}, body: '' }); });
-    req.on('error', () => resolve({ statusCode: 0, headers: {}, body: '' }));
-    req.end();
-  });
-}
-async function isapiGet(ip, port, uri, user, pass) {
-  const first = await httpGetRaw(ip, port, uri, null);
-  if (first.statusCode === 200) return first;
-  if (first.statusCode !== 401) return first;
-  const challenge = parseDigestChallenge(first.headers['www-authenticate']);
-  if (!challenge) return { statusCode: 401, body: '' };
-  return httpGetRaw(ip, port, uri, buildDigestHeader('GET', uri, user, pass, challenge));
-}
-
-/** "+07:00"/"-05:00"/"Z" suffix of an ISO localTime → minutes (e.g. 420). */
-function _tzOffsetMin(localTimeStr) {
-  if (!localTimeStr) return null;
-  if (/Z$/.test(localTimeStr)) return 0;
-  const m = localTimeStr.match(/([+-])(\d{2}):(\d{2})$/);
-  if (!m) return null;
-  const v = parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
-  return m[1] === '-' ? -v : v;
-}
-/** Numerals of an ISO localTime as ms (treated as UTC) — the local wall clock. */
-function _wallMs(localTimeStr) {
-  const m = String(localTimeStr || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
-  if (!m) return null;
-  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-}
-
 /**
- * Minutes to ADD to this device's search numerals to get local wall-clock.
- * Detected once per device (cached): compare the latest recording's numerals to
- * real-UTC-now vs device-local-now — whichever it's closer to reveals the
- * convention. Defaults to 0 (safe; matches NVR behavior) when undetectable.
+ * Minutes to ADD to this device's search numerals to get WIB (UTC+7) wall-clock.
+ * Returns 0 for local-convention devices (numerals already WIB) or +420 for
+ * UTC-convention devices (numerals are UTC → shift to WIB). The convention is
+ * detected once per device (cached) by comparing the latest recording's numerals
+ * against real-UTC-now vs WIB-now. Undetectable (no recent footage) → 0, not
+ * cached, so it self-corrects once the device has recordings.
  */
 async function getDisplayOffsetMin(src) {
   if (!src || !src.ip || !src.isapiPort) return 0;
@@ -138,18 +108,16 @@ async function getDisplayOffsetMin(src) {
   const cached = _offsetCache.get(key);
   if (cached && (Date.now() - cached.at) < OFFSET_TTL_MS) return cached.offsetMin;
 
-  const tm = await isapiGet(src.ip, src.isapiPort, TIME_URI, src.username, src.password);
-  const localStr = (String(tm.body || '').match(/<localTime>([^<]+)<\/localTime>/) || [])[1];
-  const tzMin = _tzOffsetMin(localStr);
-  const wall = _wallMs(localStr);
-  if (!tzMin) { _offsetCache.set(key, { offsetMin: 0, at: Date.now() }); return 0; } // UTC device → numerals already match
-
-  // Probe the latest recording (wide window covering both interpretations).
   const nowUtc = Date.now();
+  const wall = nowUtc + WIB_OFFSET_MIN * 60000;   // device-local "now" in WIB
+
+  // Probe the latest recording over a window wide enough to catch recent footage
+  // under EITHER interpretation (we send numerals the device reads in its own
+  // convention; [now-12h, WIB-now+5m] covers both UTC and WIB readings of "now").
   const xml = buildSearchXml({
     trackID: src.track,
     startIso: toUtcIso(new Date(nowUtc - 12 * 3600e3)),
-    endIso: toUtcIso(new Date((wall || nowUtc) + 5 * 60e3)),
+    endIso: toUtcIso(new Date(wall + 5 * 60e3)),
     max: 200, pos: 0,
   });
   const r = await isapiPost(src.ip, src.isapiPort, SEARCH_URI, src.username, src.password, xml);
@@ -157,7 +125,9 @@ async function getDisplayOffsetMin(src) {
     const ends = [...r.body.matchAll(/<endTime>([^<]+)<\/endTime>/g)].map((m) => Date.parse(m[1])).filter((n) => !isNaN(n));
     if (ends.length) {
       const maxEnd = Math.max(...ends);
-      const offsetMin = Math.abs(maxEnd - nowUtc) <= Math.abs(maxEnd - wall) ? tzMin : 0;
+      // The newest recording ended ~"now". If its numerals sit closer to real UTC
+      // now → UTC-convention (shift +WIB). Closer to WIB now → already-local (0).
+      const offsetMin = Math.abs(maxEnd - nowUtc) <= Math.abs(maxEnd - wall) ? WIB_OFFSET_MIN : 0;
       _offsetCache.set(key, { offsetMin, at: Date.now() });
       return offsetMin;
     }

@@ -17,6 +17,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 #topbar{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--bg-800);border-bottom:1px solid var(--bg-600);z-index:100}
 #topbar .logo{font-weight:700;font-size:15px;letter-spacing:-.5px;white-space:nowrap}
 #topbar .logo span{color:var(--accent)}
+.grid-presets-wrap{position:relative;display:flex;align-items:center}
+.grid-menu-btn{display:none;margin-left:16px;align-items:center;gap:6px}
+.grid-menu-btn .grid-menu-caret{font-size:10px;opacity:.7}
+.grid-menu-btn #grid-menu-label{font-size:12px}
 .grid-presets{display:flex;gap:4px;margin-left:16px}
 .grid-presets button{padding:4px 10px;border:1px solid var(--bg-500);border-radius:4px;background:var(--bg-700);color:var(--text-200);cursor:pointer;font-size:12px;transition:all .15s}
 .grid-presets button:hover{border-color:var(--accent);color:var(--text-100)}
@@ -422,18 +426,127 @@ input:focus::placeholder,textarea:focus::placeholder{color:transparent}
 /* ── RTSP Preview ── */
 .rtsp-preview{font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;font-size:12px;background:var(--bg-900);border:1px solid var(--bg-600);border-radius:4px;padding:10px 12px;color:var(--text-200);word-break:break-all;line-height:1.5;user-select:all;margin-bottom:4px}
 
-/* ── Responsive ── */
+/* ══════════════════════════════════════════════════════════════════════
+   Responsive — PC · Tablet · Mobile
+   Breakpoints:  ≤1024 tablet/landscape · ≤768 tablet-portrait/large-phone ·
+                 ≤480 phone · ≥2560 4K
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Off-canvas sidebar backdrop (shown on mobile when sidebar is open) */
+#sidebar-backdrop{display:none;position:fixed;inset:var(--topbar-h) 0 0 0;background:rgba(0,0,0,.5);z-index:150;opacity:0;visibility:hidden;transition:opacity .25s ease,visibility .25s ease}
+#sidebar-backdrop.show{opacity:1;visibility:visible}
+
+/* Topbar controls keep their size (don't squish). overflow stays VISIBLE so the
+   grid-preset dropdown and the Save/Load/Activity popovers can paint below the
+   bar — the tiered rules below shrink content to fit instead of clipping it. */
+#topbar>*{flex-shrink:0}
+.topbar-spacer{flex:1 1 auto;min-width:0}
+
+/* ── Tier 1 — narrow desktop (≤1450px): drop the least-essential readouts ── */
+@media(max-width:1450px){
+  .protocol-badge,#stream-budget{display:none}
+}
+
+/* ── Tier 2 — compact (≤1200px): grid presets → dropdown, buttons → icons ── */
+@media(max-width:1200px){
+  :root{--sidebar-w:220px}
+  #topbar{gap:8px;padding:0 10px}
+
+  /* Action buttons become icon-only (text node collapses; SVG keeps its size) */
+  .topbar-btn{font-size:0;padding:7px 9px;gap:0}
+  .topbar-btn svg{width:17px;height:17px}
+  .grid-menu-btn{font-size:12px;padding:6px 10px;gap:6px}   /* keep its label */
+  .grid-menu-btn svg{width:15px;height:15px}
+
+  /* Grid presets collapse into the dropdown panel under the trigger button */
+  .grid-menu-btn{display:flex}
+  .grid-presets{position:absolute;top:calc(100% + 6px);left:16px;margin:0;
+    display:none;flex-wrap:wrap;gap:4px;width:248px;padding:10px;
+    background:var(--bg-700);border:1px solid var(--bg-500);border-radius:8px;
+    box-shadow:0 12px 32px rgba(0,0,0,.45);z-index:200}
+  .grid-presets.open{display:flex}
+  .grid-presets button{padding:6px 10px;font-size:12px}
+  .preset-sep{display:none}
+}
+
+/* ── Tablet portrait / large phone (≤768px) ────────────────────────────── */
 @media(max-width:768px){
-  :root{--sidebar-w:0px}
-  #sidebar{position:fixed;top:var(--topbar-h);left:0;bottom:0;width:260px;z-index:200;transform:translateX(-100%);transition:transform .25s ease}
+  :root{--sidebar-w:0px;--topbar-h:52px}
+  /* Topbar stays one fixed-height row of icon buttons + the grid dropdown
+     (grid presets already collapsed from the compact tier). */
+  #app{grid-template-columns:0 1fr}
+  #topbar{gap:6px}
+  #topbar .logo{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .grid-menu-btn{margin-left:8px}
+  .grid-presets{left:8px}
+  .topbar-spacer{flex:0 0 auto;margin-left:auto}
+  #sidebar-toggle{display:flex!important;align-items:center;justify-content:center;font-size:18px;width:40px;height:40px}
+
+  /* Off-canvas sidebar */
+  #sidebar{position:fixed;top:var(--topbar-h);left:0;bottom:0;width:min(82vw,300px);z-index:200;transform:translateX(-100%);transition:transform .25s ease;box-shadow:8px 0 32px rgba(0,0,0,.5)}
   #sidebar.open{transform:translateX(0)}
-  #sidebar-toggle{display:flex!important;align-items:center;justify-content:center}
+  #sidebar-backdrop{display:block}       /* enabled only at mobile widths */
   #sidebar-collapse-btn{display:none}
   #app.sidebar-collapsed{grid-template-columns:0 1fr}
-  .ctrl-btn{width:44px;height:44px;font-size:16px}
+  .cam-item{padding:10px 8px}            /* larger touch target */
+
+  /* Tiles */
+  .ctrl-btn{width:40px;height:40px;font-size:16px}
   .tile .controls-bar{padding:8px;gap:6px}
+
+  /* Settings modal → full screen, tabs become a horizontal scroll bar on top */
+  .modal{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100dvh;border-radius:0;border:none;flex-direction:column}
+  .modal-tabs{width:100%;display:flex;overflow-x:auto;padding:0;border-right:none;border-bottom:1px solid var(--bg-600);scrollbar-width:none}
+  .modal-tabs::-webkit-scrollbar{display:none}
+  .modal-tab{width:auto;flex:0 0 auto;border-left:none;border-bottom:3px solid transparent;padding:12px 14px;white-space:nowrap}
+  .modal-tab.active{border-left-color:transparent;border-bottom-color:var(--accent)}
+  .modal-content{padding:16px}
+  .modal-header{padding:12px 16px}
+
+  /* Stack two-up form rows */
+  .form-row{flex-direction:column;gap:0}
+  .form-group[style*="flex"]{flex:1 1 auto!important}
+  .cam-form-footer{flex-direction:column-reverse;margin:16px -16px -16px;padding:12px 16px}
+  .cam-form-footer .btn{width:100%;justify-content:center;padding:11px}
+  .setting-row{flex-wrap:wrap;gap:8px}
+  .seg-control{flex-wrap:wrap}
+
+  /* Camera table — hide secondary columns so it fits a phone */
+  .cam-table th:nth-child(2),.cam-table td:nth-child(2),
+  .cam-table th:nth-child(3),.cam-table td:nth-child(3){display:none}
+
+  /* Playback modal → full screen */
+  .pb-modal{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100dvh;border-radius:0}
+  .pb-stage .pb-video{max-height:42vh}
+  .pb-dl-panel{padding:8px}
+  .pb-dl-panel .pb-field,.pb-dl-panel .btn{flex:1 1 100%}
+
+  /* Activity drawer full width */
   .activity-drawer{width:100vw;max-width:100vw}
 }
+
+/* ── Phone (≤480px) ────────────────────────────────────────────────────── */
+@media(max-width:480px){
+  html,body{font-size:12px}
+  #topbar{gap:4px;padding:0 8px}
+  #topbar .logo{font-size:13px}
+  .topbar-btn{padding:6px}
+  /* Drop the two least-used actions so the rest never clip on a small phone
+     (mute & grid-fullscreen are rarely needed on a phone; reachable on a tablet). */
+  #btn-mute-all,#btn-fullscreen-grid{display:none}
+  .modal-header h2,.drawer-header h2{font-size:15px}
+  .drawer-filters{flex-wrap:wrap}
+  .drawer-filters .form-select{flex:1 1 45%}
+  .pb-toolbar{gap:6px}
+  .pb-toolbar .btn,.pb-date,.pb-source{flex:1 1 auto;min-width:0}
+}
+
+/* Bigger tap targets for any coarse pointer (touch) device */
+@media(hover:none) and (pointer:coarse){
+  .btn,.form-input,.form-select,.modal-tab,.topbar-btn{min-height:40px}
+  .modal-close{width:36px;height:36px}
+}
+
 @media(min-width:2560px){
   :root{font-size:16px;--grid-gap:6px}
 }

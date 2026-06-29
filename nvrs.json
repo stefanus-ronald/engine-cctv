@@ -1,12 +1,1 @@
-[
-  {
-    "id": "nvr-main",
-    "name": "",
-    "group": "",
-    "host": "192.168.1.181",
-    "rtspPort": 5541,
-    "isapiPort": 81,
-    "username": "admin",
-    "password": "H4nd4l9165!"
-  }
-]
+[]

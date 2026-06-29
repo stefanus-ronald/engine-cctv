@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perbandingan NVR — Shinobi · Frigate · LightNVR · ENGINE-CCTV</title>
+<style>
+  :root{
+    --bg:#0b1120; --card:#16213e; --card2:#1c2a4a; --accent:#3b82f6; --accent2:#22d3ee;
+    --green:#22c55e; --amber:#f59e0b; --rose:#f43f5e; --purple:#a855f7;
+    --text:#e2e8f0; --muted:#94a3b8; --border:#27324d;
+    --c-us:#22c55e; --c-frigate:#ef4444; --c-shinobi:#f59e0b; --c-light:#3b82f6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(160deg,#0b1120,#0d1428);
+    color:var(--text);line-height:1.6;font-size:15px}
+  a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+
+  header.hero{background:radial-gradient(1200px 400px at 50% -50px,rgba(59,130,246,.25),transparent),
+    linear-gradient(180deg,#0e1730,#0b1120);border-bottom:1px solid var(--border);padding:60px 0 44px;text-align:center}
+  .badge{display:inline-block;background:rgba(34,197,94,.15);color:var(--green);
+    border:1px solid rgba(34,197,94,.35);padding:5px 14px;border-radius:30px;font-size:12px;font-weight:600;margin-bottom:16px}
+  header.hero h1{font-size:38px;font-weight:800;letter-spacing:-1px;
+    background:linear-gradient(90deg,#60a5fa,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  header.hero p.sub{color:var(--muted);font-size:17px;margin-top:10px;max-width:760px;margin:10px auto 0}
+
+  .legend{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+  .lg{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;padding:8px 16px;font-size:13px;font-weight:600}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .d-us{background:var(--c-us)}.d-frigate{background:var(--c-frigate)}
+  .d-shinobi{background:var(--c-shinobi)}.d-light{background:var(--c-light)}
+
+  nav.toc{position:sticky;top:0;z-index:50;background:rgba(11,17,32,.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);padding:11px 0}
+  nav.toc .wrap{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  nav.toc a{color:var(--muted);font-size:13px;font-weight:600;padding:6px 13px;border-radius:8px;transition:.2s}
+  nav.toc a:hover{background:var(--card);color:#fff;text-decoration:none}
+
+  section{padding:50px 0 6px}
+  h2.sec{font-size:27px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:11px}
+  .sec-desc{color:var(--muted);margin-bottom:24px;font-size:15px}
+
+  .callout{border-radius:12px;padding:18px 22px;margin:14px 0;border-left:4px solid}
+  .c-warn{background:rgba(245,158,11,.08);border-color:var(--amber)}
+  .c-good{background:rgba(34,197,94,.08);border-color:var(--green)}
+  .c-info{background:rgba(59,130,246,.08);border-color:var(--accent)}
+  .callout b{color:#fff}
+
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;
+    font-size:13.5px;border:1px solid var(--border);margin-top:6px}
+  th{background:var(--card2);text-align:left;padding:12px 14px;font-size:13px;color:#fff;font-weight:700;white-space:nowrap}
+  th.us{color:#86efac}th.fr{color:#fca5a5}th.sh{color:#fcd34d}th.li{color:#93c5fd}
+  td{padding:10px 14px;border-top:1px solid var(--border);color:var(--muted);vertical-align:top}
+  td:first-child{color:var(--text);font-weight:600}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .ok{color:var(--green);font-weight:700}.no{color:var(--rose);font-weight:700}.warn{color:var(--amber);font-weight:700}
+  .yes2{color:var(--green);font-weight:700}
+  .tbl-wrap{overflow-x:auto}
+
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:repeat(2,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:1000px){.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:760px){.g2,.g4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;transition:.25s}
+  .card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(0,0,0,.4)}
+  .card h3{font-size:16px;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px}
+  .card p{color:var(--muted);font-size:13.5px}
+  .card.us{border-top:3px solid var(--c-us)}.card.fr{border-top:3px solid var(--c-frigate)}
+  .card.sh{border-top:3px solid var(--c-shinobi)}.card.li{border-top:3px solid var(--c-light)}
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;margin:8px 4px 0 0}
+  .ch-mit{background:rgba(34,197,94,.18);color:#4ade80}
+  .ch-gpl{background:rgba(245,158,11,.18);color:#fbbf24}
+  .ch-eula{background:rgba(244,63,94,.18);color:#fb7185}
+
+  ul.clean{list-style:none;margin-top:8px}
+  ul.clean li{padding:6px 0 6px 26px;position:relative;color:var(--muted);font-size:14px}
+  ul.clean li:before{content:"▹";position:absolute;left:5px;color:var(--accent2)}
+  ul.clean li b{color:var(--text)}
+
+  .pill{display:inline-block;background:var(--card2);border:1px solid var(--border);border-radius:7px;
+    padding:3px 9px;font-size:12px;font-family:monospace;color:#7dd3fc;margin:2px 2px 2px 0}
+  .flow{background:#0a0f1f;border:1px solid var(--border);border-radius:14px;padding:22px;
+    font-family:'Consolas',monospace;font-size:13px;color:#9fb3d1;overflow-x:auto;white-space:pre;line-height:1.5}
+  .links{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+  .lnk{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 18px;font-size:14px;font-weight:600;color:#fff}
+  .lnk:hover{border-color:var(--accent);text-decoration:none}
+  footer{margin-top:54px;border-top:1px solid var(--border);padding:28px 0;text-align:center;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge">● RISET PERBANDINGAN — PROJECT ENGINE CCTV</span>
+    <h1>Shinobi · Frigate · LightNVR · ENGINE-CCTV</h1>
+    <p class="sub">Perbandingan stack infrastruktur, fitur, dan performa platform NVR open-source terhadap engine CCTV kita</p>
+    <div class="legend">
+      <div class="lg"><span class="dot d-us"></span>ENGINE-CCTV (kita)</div>
+      <div class="lg"><span class="dot d-frigate"></span>Frigate</div>
+      <div class="lg"><span class="dot d-shinobi"></span>Shinobi</div>
+      <div class="lg"><span class="dot d-light"></span>LightNVR</div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#tldr">★ Jawaban</a>
+  <a href="#stack">Stack</a>
+  <a href="#fitur">Fitur</a>
+  <a href="#performa">Performa</a>
+  <a href="#lisensi">Lisensi</a>
+  <a href="#posisi">Posisi Kita</a>
+  <a href="#rekom">Rekomendasi</a>
+  <a href="#dok">Dokumen</a>
+</div></nav>
+
+<!-- TLDR -->
+<section id="tldr">
+  <div class="wrap">
+    <h2 class="sec">💬 "Bukannya engine kita sudah pakai itu ya?"</h2>
+    <div class="callout c-good">
+      <b>Tidak — engine kita BUKAN Shinobi/Frigate/LightNVR.</b> ENGINE-CCTV adalah NVR <b>buatan sendiri</b> (Node.js).
+      Yang sama dengan mereka hanyalah <b>komponen di bawahnya</b>, bukan platformnya. Analoginya: kita & Frigate sama-sama pakai "mesin" <b>go2rtc</b>, tapi "mobil"-nya beda.
+    </div>
+    <div class="tbl-wrap"><table>
+      <tr><th>Komponen</th><th>Kita pakai?</th><th>Siapa lagi</th></tr>
+      <tr><td>go2rtc (engine WebRTC/RTSP)</td><td class="ok">✅ Ya</td><td>Frigate (bundling), LightNVR. Shinobi tidak.</td></tr>
+      <tr><td>FFmpeg (decode/transcode)</td><td class="ok">✅ Ya</td><td>Frigate, Shinobi, LightNVR — semua</td></tr>
+      <tr><td>Node.js runtime</td><td class="ok">✅ Ya</td><td>Shinobi juga. Frigate=Python, LightNVR=C</td></tr>
+      <tr><td>Platform NVR jadi (Shinobi/Frigate/LightNVR)</td><td class="no">❌ Tidak</td><td>—</td></tr>
+    </table></div>
+    <div class="callout c-info">
+      <b>📌 Soal AI:</b> research di <span class="pill">E:\PROJECT\CCTV\RESEARCH</span> (InsightFace, DeepFace, PPE-YOLO, custom ONNX) adalah <b>lapisan deteksi AI</b> — setara yang Frigate lakukan di dalam dirinya. Rencana kita: AI sebagai <b>service Python terpisah</b> (via <span class="pill">vca-proxy.js</span>), bukan dibenamkan ke core.
+    </div>
+  </div>
+</section>
+
+<!-- STACK -->
+<section id="stack">
+  <div class="wrap">
+    <h2 class="sec">🧱 Stack / Infrastruktur</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Aspek</th><th class="us">🟢 ENGINE-CCTV</th><th class="fr">🔴 Frigate</th><th class="sh">🟡 Shinobi</th><th class="li">🔵 LightNVR</th></tr>
+      <tr><td>Bahasa backend</td><td>Node.js (zero-framework)</td><td>Python (FastAPI)</td><td>Node.js (Express)</td><td>C</td></tr>
+      <tr><td>Frontend</td><td>Vanilla JS SPA</td><td>React + TypeScript</td><td>Dashboard + jsmpeg</td><td>Preact + Tailwind</td></tr>
+      <tr><td>Database</td><td>File JSON</td><td>SQLite (Peewee)</td><td>MariaDB/MySQL/SQLite</td><td>SQLite (42 migrasi)</td></tr>
+      <tr><td>Streaming engine</td><td class="yes2">go2rtc + FFmpeg</td><td class="yes2">FFmpeg + go2rtc (bundling)</td><td>FFmpeg (per kamera)</td><td class="yes2">FFmpeg + go2rtc</td></tr>
+      <tr><td>Realtime browser</td><td>SSE + WebRTC/MJPEG</td><td>WebSocket + go2rtc</td><td>Socket.io</td><td>libuv + go2rtc</td></tr>
+      <tr><td>Target kamera</td><td class="ok">Hikvision ISAPI (dalam)</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td></tr>
+      <tr><td>Lisensi</td><td class="ok">MIT</td><td class="ok">MIT</td><td class="warn">EULA/GPLv3 (CE)</td><td class="warn">GPLv3</td></tr>
+    </table></div>
+    <div class="callout c-info">
+      <b>Frigate membungkus go2rtc</b> (v1.9.10) di dalam container-nya — fondasi sama persis dengan kita. <b>Shinobi tidak berpusat pada go2rtc</b>: spawn 1 proses FFmpeg per kamera → resource naik linear.
+    </div>
+  </div>
+</section>
+
+<!-- FITUR -->
+<section id="fitur">
+  <div class="wrap">
+    <h2 class="sec">⭐ Fitur</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Fitur</th><th class="us">🟢 Kita</th><th class="fr">🔴 Frigate</th><th class="sh">🟡 Shinobi</th><th class="li">🔵 LightNVR</th></tr>
+      <tr><td>Live WebRTC</td><td class="ok">✅ go2rtc</td><td class="ok">✅ go2rtc</td><td class="warn">⚠ terbatas</td><td class="ok">✅ go2rtc</td></tr>
+      <tr><td>Deteksi objek AI on-frame</td><td class="no">❌ (rencana svc Python)</td><td class="ok">✅✅ inti produk</td><td class="warn">⚠ plugin</td><td class="ok">✅ SOD/TFLite/API</td></tr>
+      <tr><td>Akselerator AI</td><td>— (rencana ONNX/GPU)</td><td>Coral/OpenVINO/TensorRT/Hailo</td><td>TF/Coral/CodeProject.AI</td><td>SOD/XNNPACK</td></tr>
+      <tr><td>Zona deteksi</td><td class="no">❌ belum</td><td class="ok">✅ poligon</td><td class="ok">✅ region</td><td class="ok">✅ poligon</td></tr>
+      <tr><td>Recording sendiri</td><td>❌ andalkan NVR</td><td class="ok">✅ MP4 no re-encode</td><td class="ok">✅ + cloud</td><td class="ok">✅ MP4/HLS</td></tr>
+      <tr><td>Playback rekaman</td><td class="ok">✅ dari NVR (ISAPI)</td><td>✅ rekaman sendiri</td><td>✅ + timelapse</td><td>✅ timeline</td></tr>
+      <tr><td>Retention policy</td><td>(di NVR)</td><td>per-kamera</td><td>age/size purge</td><td class="ok">✅ 4-tier + protected</td></tr>
+      <tr><td>MQTT / Home Assistant</td><td class="no">❌ belum</td><td class="ok">✅✅ erat (HACS)</td><td class="warn">⚠ komunitas</td><td class="ok">✅ MQTT discovery</td></tr>
+      <tr><td>NVR auto-sync channel</td><td class="ok">✅✅ unik</td><td class="no">❌</td><td class="no">❌</td><td class="no">❌</td></tr>
+      <tr><td>Face recognition / LPR</td><td>(rencana)</td><td class="ok">✅ bawaan 0.16</td><td class="warn">⚠ plugin</td><td class="no">❌</td></tr>
+      <tr><td>Auth / MFA</td><td class="warn">token opsional</td><td>✅ auth+roles</td><td>✅ LDAP/OAuth</td><td class="ok">✅ TOTP+RBAC</td></tr>
+    </table></div>
+    <div class="grid g4" style="margin-top:18px">
+      <div class="card fr"><h3>🔴 Frigate</h3><p>Juara deteksi AI. Pipeline 2-tahap: motion murah → object detection di area gerak. Face/LPR sejak 0.16. HA paling erat.</p></div>
+      <div class="card sh"><h3>🟡 Shinobi</h3><p>Paling serba-bisa, banyak plugin & multi-storage/cloud. Tapi objek detection via plugin eksternal, motion pixel-based klasik.</p></div>
+      <div class="card li"><h3>🔵 LightNVR</h3><p>Paling ringan (256MB) + retention paling canggih (4-tier). Backbone go2rtc seperti kita.</p></div>
+      <div class="card us"><h3>🟢 ENGINE-CCTV</h3><p>Paling dalam untuk Hikvision: ISAPI line-crossing arah panah, NVR auto-sync, playback langsung dari NVR — tak satupun lain punya.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PERFORMA -->
+<section id="performa">
+  <div class="wrap">
+    <h2 class="sec">⚡ Performa</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Aspek</th><th class="us">🟢 Kita</th><th class="fr">🔴 Frigate</th><th class="sh">🟡 Shinobi</th><th class="li">🔵 LightNVR</th></tr>
+      <tr><td>Beban CPU</td><td>Sedang (live=copy)</td><td class="warn">Tinggi (butuh AVX2+GPU)</td><td class="warn">Naik linear/kamera</td><td class="ok">Sangat rendah</td></tr>
+      <tr><td>RAM</td><td>Sedang</td><td class="warn">Tinggi (Search ≥8GB)</td><td>Sedang–tinggi</td><td class="ok">256MB min</td></tr>
+      <tr><td>Butuh akselerator AI?</td><td>Tidak (svc terpisah)</td><td class="warn">Sangat disarankan</td><td>Untuk plugin: ya</td><td>Opsional</td></tr>
+      <tr><td>GPU decode</td><td>Tak perlu (copy)</td><td class="warn">Sangat disarankan</td><td>Opsional</td><td>Opsional</td></tr>
+      <tr><td>Skala kamera</td><td class="ok">Banyak (relay copy)</td><td>Dibatasi detektor</td><td>Dibatasi proses FFmpeg</td><td class="ok">Banyak</td></tr>
+      <tr><td>Raspberry Pi</td><td>Bisa</td><td>Pi 4/5 (perlu detektor)</td><td>Pi 3/4 (batas CPU)</td><td class="ok">Ideal (SBC)</td></tr>
+    </table></div>
+    <div class="callout c-warn">
+      <b>Frigate berat</b> karena AI inference + decode video. <b>Update penting:</b> Coral TPU <b>bukan lagi rekomendasi utama</b> (kecuali daya rendah) — Hailo-8/Intel Arc/GPU modern lebih cepat. <b>Coral tidak bantu decode video</b> (beban terpisah).
+    </div>
+    <div class="callout c-good">
+      <b>Engine kita unggul untuk live</b> karena go2rtc me-relay stream (copy, tanpa re-encode) → live view murah. Beban baru hanya muncul saat menambah AI — itupun bisa di-offload ke service Python/GPU terpisah. <b>Tiru pola Frigate:</b> substream low-res (720p, 5fps) untuk deteksi, mainstream untuk rekam.
+    </div>
+  </div>
+</section>
+
+<!-- LISENSI -->
+<section id="lisensi">
+  <div class="wrap">
+    <h2 class="sec">⚖️ Lisensi (penting untuk komersial)</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Platform</th><th>Lisensi</th><th>Boleh komersial-tertutup?</th></tr>
+      <tr><td>🟢 ENGINE-CCTV (kita)</td><td><span class="chip ch-mit">MIT</span></td><td class="ok">✅ Bebas</td></tr>
+      <tr><td>🔴 Frigate</td><td><span class="chip ch-mit">MIT</span> (Frigate+ = SaaS opsional)</td><td class="ok">✅ Bebas (core)</td></tr>
+      <tr><td>🔵 LightNVR</td><td><span class="chip ch-gpl">GPLv3</span> (+ commercial berbayar)</td><td class="no">❌ Tanpa beli lisensi</td></tr>
+      <tr><td>🟡 Shinobi Pro</td><td><span class="chip ch-eula">Custom EULA</span></td><td class="no">❌ Wajib langganan</td></tr>
+      <tr><td>🟡 Shinobi CE</td><td><span class="chip ch-gpl">GPLv3+AGPLv3</span></td><td class="warn">⚠ Wajib pertahankan logo, fitur terbatas</td></tr>
+      <tr><td>go2rtc</td><td><span class="chip ch-mit">MIT</span></td><td class="ok">✅ Aman jadi backbone</td></tr>
+    </table></div>
+    <div class="callout c-good">
+      <b>Kombinasi paling aman untuk produk komersial-tertutup: ENGINE-CCTV (MIT) + go2rtc (MIT).</b> Hindari menyalin kode LightNVR (GPLv3) & Shinobi Pro (EULA). Frigate MIT — aman untuk meniru pola, bahkan memakai komponennya.
+    </div>
+  </div>
+</section>
+
+<!-- POSISI -->
+<section id="posisi">
+  <div class="wrap">
+    <h2 class="sec">🎯 Posisi ENGINE-CCTV Kita</h2>
+    <div class="flow">      Ringan ◄──────────────────────────────► Kaya fitur AI
+
+  LightNVR ●           ● ENGINE-CCTV               ● Frigate
+ (embedded)        (Hikvision/ISAPI,            (AI-first,
+                    NVR-centric)                 HA-centric)
+                              ● Shinobi
+                          (serba-bisa, plugin)</div>
+    <div class="grid g2" style="margin-top:18px">
+      <div class="card us"><h3 style="color:#4ade80">💪 Diferensiasi kita (unik)</h3>
+        <ul class="clean">
+          <li><b>ISAPI Hikvision mendalam</b> — line-crossing arah panah, sensitivity, capabilities probe, status HDD/SD/NAS</li>
+          <li><b>NVR/DVR auto-sync</b> — impor semua channel otomatis</li>
+          <li><b>Playback langsung dari NVR</b> — tak perlu rekam ulang, hemat storage masif</li>
+          <li><b>MIT + Node.js + zero-build</b> — mudah dikembangkan & bebas komersial</li>
+        </ul>
+      </div>
+      <div class="card fr"><h3 style="color:#60a5fa">🎯 Yang bisa kita serap (urut prioritas)</h3>
+        <ul class="clean">
+          <li><b>① AI object detection on-frame</b> — pola JPEG snapshot go2rtc → service AI (fondasi sudah ada: vca-proxy + SSE)</li>
+          <li><b>② Zona deteksi poligon</b> — ray-casting, kurangi false positive</li>
+          <li><b>③ Substream untuk deteksi</b> — hemat CPU saat AI ditambah</li>
+          <li><b>④ MQTT → Home Assistant</b> · <b>⑤ recording sendiri + retention 4-tier</b> (opsional)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- REKOMENDASI -->
+<section id="rekom">
+  <div class="wrap">
+    <h2 class="sec">✅ Rekomendasi Strategis</h2>
+    <div class="tbl-wrap"><table>
+      <tr><th>Kebutuhan</th><th>Pilihan terbaik</th></tr>
+      <tr><td>Produk komersial Hikvision, kontrol penuh, playback dari NVR</td><td class="ok">✅ Lanjutkan ENGINE-CCTV kita</td></tr>
+      <tr><td>Deteksi AI canggih + Home Assistant, tak masalah berat</td><td>Frigate (atau tiru polanya ke engine kita)</td></tr>
+      <tr><td>Perangkat super-hemat (SBC/embedded)</td><td>LightNVR (tapi GPLv3)</td></tr>
+      <tr><td>NVR serba-bisa cepat, banyak plugin</td><td>Shinobi (hati-hati lisensi Pro)</td></tr>
+    </table></div>
+    <div class="callout c-good">
+      <b>Kesimpulan: tidak perlu pindah platform.</b> Pertahankan ENGINE-CCTV (keunggulan ISAPI + NVR-centric + MIT), lalu <b>serap pola AI detection dari Frigate/LightNVR</b> sebagai service terpisah memakai fondasi go2rtc + vca-proxy yang sudah kita miliki.
+    </div>
+  </div>
+</section>
+
+<!-- DOKUMEN -->
+<section id="dok">
+  <div class="wrap">
+    <h2 class="sec">📂 Dokumen Terkait</h2>
+    <div class="links">
+      <a class="lnk" href="NVR-Comparison.md">📄 NVR-Comparison.md (detail lengkap)</a>
+      <a class="lnk" href="LightNVR-Ringkasan.md">📄 LightNVR-Ringkasan.md</a>
+      <a class="lnk" href="lightnvr-visual.html">🖼️ Presentasi visual LightNVR</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Riset internal Project Engine CCTV · 29 Juni 2026 · Fakta Frigate & Shinobi diverifikasi via sumber resmi (github/gitlab + docs)</p>
+    <p style="margin-top:6px">⚠️ Klaim "WebRTC sub-detik" Frigate adalah klaim komunitas, tak tertulis di docs resmi. Lisensi Shinobi pernah berubah — verifikasi ulang bila untuk keputusan hukum.</p>
+  </div>
+</footer>
+
+</body>
+</html>

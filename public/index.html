@@ -13,7 +13,14 @@
   <header id="topbar">
     <button id="sidebar-toggle" aria-label="Toggle camera sidebar" style="display:none">&#9776;</button>
     <div class="logo">ENGINE <span>CCTV</span></div>
-    <div class="grid-presets" id="grid-presets"></div>
+    <div class="grid-presets-wrap" id="grid-presets-wrap">
+      <button class="topbar-btn grid-menu-btn" id="grid-menu-btn" title="Grid layout" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        <span id="grid-menu-label">3×3</span>
+        <span class="grid-menu-caret">▾</span>
+      </button>
+      <div class="grid-presets" id="grid-presets"></div>
+    </div>
     <div class="topbar-spacer"></div>
     <div class="protocol-badge" id="protocol-badge" title="Current streaming protocol and quality">
       <span class="protocol-badge-proto" id="protocol-badge-proto">WebRTC</span>
@@ -84,6 +91,9 @@
     </div>
     <div id="grid-container"></div>
   </section>
+
+  <!-- Mobile sidebar backdrop (tap to close the off-canvas camera list) -->
+  <div id="sidebar-backdrop" aria-hidden="true"></div>
 </div>
 
 <!-- Toast -->

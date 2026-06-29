@@ -1321,22 +1321,16 @@ function renderSidebar() {
 
       // Keyboard: Enter to assign to first empty tile
       item.addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-          if (Object.values(tileAssignments).includes(cam.id)) {
-            showToast('Camera already on grid', true);
-            return;
-          }
-          const total = getLayoutTotal();
-          for (let i = 0; i < total; i++) {
-            if (!tileAssignments[i]) {
-              if (checkBudget()) return;
-              tileAssignments[i] = cam.id;
-              renderGrid();
-              showToast(`${cam.name} assigned to tile ${i + 1}`);
-              break;
-            }
-          }
-        }
+        if (e.key === 'Enter') assignCamToFirstEmpty(cam);
+      });
+
+      // Touch/mobile: drag-and-drop is impractical, so a tap assigns the camera
+      // to the first empty tile and closes the off-canvas sidebar.
+      item.addEventListener('click', e => {
+        if (e.defaultPrevented) return;                 // analytics dot handled it
+        if (!window.matchMedia('(max-width:768px)').matches) return;  // desktop keeps drag
+        assignCamToFirstEmpty(cam);
+        closeMobileSidebarIfNarrow();
       });
 
       body.appendChild(item);
@@ -1356,10 +1350,43 @@ function renderSidebar() {
 searchInput.addEventListener('input', renderSidebar);
 searchClear.addEventListener('click', () => { searchInput.value = ''; renderSidebar(); searchInput.focus(); });
 
-// Sidebar toggle for mobile
+// Sidebar toggle for mobile (off-canvas) + tap-to-close backdrop
+function setMobileSidebar(open) {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebar-backdrop');
+  sb.classList.toggle('open', open);
+  if (bd) bd.classList.toggle('show', open);
+}
 document.getElementById('sidebar-toggle').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
+  const sb = document.getElementById('sidebar');
+  setMobileSidebar(!sb.classList.contains('open'));
 });
+(function () {
+  const bd = document.getElementById('sidebar-backdrop');
+  if (bd) bd.addEventListener('click', () => setMobileSidebar(false));
+})();
+// On a phone/tablet, close the off-canvas sidebar after a camera is picked.
+function closeMobileSidebarIfNarrow() {
+  if (window.matchMedia('(max-width:768px)').matches) setMobileSidebar(false);
+}
+// Assign a camera to the first empty tile (shared by Enter key + mobile tap).
+function assignCamToFirstEmpty(cam) {
+  if (Object.values(tileAssignments).includes(cam.id)) {
+    showToast('Camera already on grid', true);
+    return;
+  }
+  const total = getLayoutTotal();
+  for (let i = 0; i < total; i++) {
+    if (!tileAssignments[i]) {
+      if (checkBudget()) return;
+      tileAssignments[i] = cam.id;
+      renderGrid();
+      showToast(`${cam.name} assigned to tile ${i + 1}`);
+      return;
+    }
+  }
+  showToast('No empty tile — increase the grid size', true);
+}
 
 // Sidebar collapse for desktop
 function toggleSidebarCollapsed() {
@@ -1395,12 +1422,46 @@ FOCUS_LAYOUTS.forEach(layout => {
   presetsEl.appendChild(btn);
 });
 
+// Compact-mode grid menu (the preset row collapses into this dropdown when the
+// topbar is narrow). Keep its label in sync with the active layout.
+const gridMenuBtn = document.getElementById('grid-menu-btn');
+const gridMenuLabel = document.getElementById('grid-menu-label');
+function _setGridMenuLabel(text) { if (gridMenuLabel) gridMenuLabel.textContent = text; }
+function _closeGridMenu() {
+  presetsEl.classList.remove('open');
+  if (gridMenuBtn) gridMenuBtn.setAttribute('aria-expanded', 'false');
+}
+if (gridMenuBtn) {
+  gridMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = presetsEl.classList.toggle('open');
+    gridMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  // Close the dropdown after picking a preset (in compact mode) or clicking away.
+  presetsEl.addEventListener('click', (e) => { if (e.target.closest('button')) _closeGridMenu(); });
+  document.addEventListener('click', (e) => {
+    if (!presetsEl.classList.contains('open')) return;
+    if (e.target.closest('#grid-presets-wrap')) return;
+    _closeGridMenu();
+  });
+}
+// Initial label from the current layout.
+(function () {
+  if (activeLayout && activeLayout.type === 'focus') {
+    const l = FOCUS_LAYOUTS.find(x => x.id === activeLayout.id);
+    _setGridMenuLabel(l ? l.label : 'Grid');
+  } else {
+    _setGridMenuLabel(`${gridSize}×${gridSize}`);
+  }
+})();
+
 function setGridSize(n) {
   gridSize = n;
   activeLayout = { type: 'uniform', size: n };
   focusedTile = null;
   presetsEl.querySelectorAll('button[data-size]').forEach(b => b.classList.toggle('active', +b.dataset.size === n));
   presetsEl.querySelectorAll('button.focus-preset').forEach(b => b.classList.remove('active'));
+  _setGridMenuLabel(`${n}×${n}`);
   renderGrid();
 }
 
@@ -1411,6 +1472,7 @@ function setFocusLayout(id) {
   focusedTile = null;
   presetsEl.querySelectorAll('button[data-size]').forEach(b => b.classList.remove('active'));
   presetsEl.querySelectorAll('button.focus-preset').forEach(b => b.classList.toggle('active', b.dataset.focusId === id));
+  _setGridMenuLabel(layout.label);
   renderGrid();
 }
 
