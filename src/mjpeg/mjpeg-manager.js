@@ -17,12 +17,21 @@ const BOUNDARY = 'MJPEG_BOUNDARY';
 
 const MAX_RESTART_ATTEMPTS = 5;
 
-// Per-camera state: { ffmpeg, parser, clients: Set, stopTimer, restartCount, altIndex }
+// Per-stream state, keyed by streamKey (cameraId for MAIN, `${cameraId}::sub` for
+// SUB so a camera's main and sub channels can stream independently on different
+// tiles): { cameraId, quality, ffmpeg, parser, clients: Set, stopTimer, restartCount, altIndex }
 const streams = new Map();
 
-function getOrCreateStream(cameraId) {
-  if (!streams.has(cameraId)) {
-    streams.set(cameraId, {
+// MAIN keeps the bare cameraId as its key (backward compatible); SUB gets a suffix.
+function streamKeyFor(cameraId, quality) {
+  return quality === 'sub' ? `${cameraId}::sub` : cameraId;
+}
+
+function getOrCreateStream(streamKey, cameraId, quality) {
+  if (!streams.has(streamKey)) {
+    streams.set(streamKey, {
+      cameraId,
+      quality: quality === 'sub' ? 'sub' : 'main',
       ffmpeg: null,
       parser: new JPEGFrameParser(),
       clients: new Set(),
@@ -31,24 +40,25 @@ function getOrCreateStream(cameraId) {
       altIndex: -1, // -1 = primary path, 0+ = index into rtspAlternatives
     });
   }
-  return streams.get(cameraId);
+  return streams.get(streamKey);
 }
 
-function startFFmpeg(cameraId) {
+function startFFmpeg(streamKey) {
+  const stream = streams.get(streamKey);
+  if (!stream) return;
+  const cameraId = stream.cameraId;
   const cam = cameraManager.getById(cameraId);
   if (!cam) {
     console.log(`[mjpeg] Camera ${cameraId} not found`);
     return;
   }
 
-  const stream = getOrCreateStream(cameraId);
-
-  // Use alternative path if set, otherwise primary
+  // Use alternative path if set, otherwise the path for this stream's quality (main/sub)
   let rtspUrl;
   if (stream.altIndex >= 0 && cam.rtspAlternatives && cam.rtspAlternatives[stream.altIndex]) {
     rtspUrl = cameraManager.buildRtspUrlWithPath(cam, cam.rtspAlternatives[stream.altIndex]);
   } else {
-    rtspUrl = cameraManager.buildRtspUrl(cam);
+    rtspUrl = cameraManager.buildRtspUrlForQuality(cam, stream.quality);
   }
 
   if (stream.ffmpeg) return; // Already running
@@ -81,7 +91,7 @@ function startFFmpeg(cameraId) {
     stream.restartCount = 0;
     const frames = stream.parser.parseChunk(chunk);
     for (const frame of frames) {
-      sendFrameToClients(cameraId, frame);
+      sendFrameToClients(streamKey, frame);
     }
   });
 
@@ -102,7 +112,7 @@ function startFFmpeg(cameraId) {
       stream.restartCount++;
       if (stream.restartCount <= MAX_RESTART_ATTEMPTS) {
         console.log(`[mjpeg] Restarting FFmpeg for ${cameraId} in 3s... (attempt ${stream.restartCount}/${MAX_RESTART_ATTEMPTS})`);
-        setTimeout(() => startFFmpeg(cameraId), 3000);
+        setTimeout(() => startFFmpeg(streamKey), 3000);
       } else {
         // Try next alternative RTSP path if available
         const cam = cameraManager.getById(cameraId);
@@ -112,7 +122,7 @@ function startFFmpeg(cameraId) {
           stream.altIndex = nextAlt;
           stream.restartCount = 0;
           console.log(`[mjpeg] Trying alternative RTSP path ${nextAlt + 1}/${alts.length} for ${cameraId}: ${alts[nextAlt]}`);
-          setTimeout(() => startFFmpeg(cameraId), 2000);
+          setTimeout(() => startFFmpeg(streamKey), 2000);
         } else {
           console.log(`[mjpeg] All RTSP paths exhausted for ${cameraId} — stopping`);
           cameraManager.setStatus(cameraId, 'error');
@@ -129,17 +139,17 @@ function startFFmpeg(cameraId) {
   cameraManager.setStatus(cameraId, 'online');
 }
 
-function stopFFmpeg(cameraId) {
-  const stream = streams.get(cameraId);
+function stopFFmpeg(streamKey) {
+  const stream = streams.get(streamKey);
   if (!stream || !stream.ffmpeg) return;
 
-  console.log(`[mjpeg] Stopping FFmpeg for ${cameraId}`);
+  console.log(`[mjpeg] Stopping FFmpeg for ${streamKey}`);
   stream.ffmpeg.kill('SIGTERM');
   stream.ffmpeg = null;
 }
 
-function sendFrameToClients(cameraId, frameBuffer) {
-  const stream = streams.get(cameraId);
+function sendFrameToClients(streamKey, frameBuffer) {
+  const stream = streams.get(streamKey);
   if (!stream) return;
 
   const headers = Buffer.from(
@@ -165,8 +175,9 @@ function sendFrameToClients(cameraId, frameBuffer) {
  * Handle an MJPEG stream request.
  * @param {string} cameraId
  * @param {http.ServerResponse} res
+ * @param {string} [quality] - 'main' (default) or 'sub' (lower bitrate channel)
  */
-function handleStream(cameraId, res) {
+function handleStream(cameraId, res, quality) {
   const cam = cameraManager.getById(cameraId);
   if (!cam) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -174,7 +185,8 @@ function handleStream(cameraId, res) {
     return;
   }
 
-  const stream = getOrCreateStream(cameraId);
+  const streamKey = streamKeyFor(cameraId, quality);
+  const stream = getOrCreateStream(streamKey, cameraId, quality);
 
   // Cancel pending stop timer
   if (stream.stopTimer) {
@@ -191,22 +203,22 @@ function handleStream(cameraId, res) {
   });
 
   stream.clients.add(res);
-  console.log(`[mjpeg] Client connected to ${cameraId} (${stream.clients.size} total)`);
+  console.log(`[mjpeg] Client connected to ${streamKey} (${stream.clients.size} total)`);
 
   // Start FFmpeg if first client
   if (stream.clients.size === 1 && !stream.ffmpeg) {
-    startFFmpeg(cameraId);
+    startFFmpeg(streamKey);
   }
 
   // Handle disconnect
   res.on('close', () => {
     stream.clients.delete(res);
-    console.log(`[mjpeg] Client disconnected from ${cameraId} (${stream.clients.size} remaining)`);
+    console.log(`[mjpeg] Client disconnected from ${streamKey} (${stream.clients.size} remaining)`);
 
     if (stream.clients.size === 0) {
       stream.stopTimer = setTimeout(() => {
         if (stream.clients.size === 0) {
-          stopFFmpeg(cameraId);
+          stopFFmpeg(streamKey);
         }
       }, 1000);
     }

@@ -114,6 +114,7 @@ function startConnection(connKey, group) {
  * Step 1: Send unauthenticated request to get Digest challenge.
  */
 function connectEndpoint(state) {
+  if (state.closing || !connections.has(state.connKey)) return; // endpoint was torn down
   const { ip, port } = state;
   const uri = ALERT_STREAM_PATH;
 
@@ -410,8 +411,13 @@ function resolveCameraId(state, rawEvent) {
     return state.cameras[0].id;
   }
 
-  // Can't resolve — log for debugging
-  console.warn(`[isapi] Cannot resolve camera for event on ${state.ip}:${state.port} ch=${channelID}`);
+  // Can't resolve — log at most once per 30s per endpoint to avoid flooding when
+  // a device keeps pushing events for a channel that has no matching camera.
+  const now = Date.now();
+  if (!state._lastUnresolvedLog || now - state._lastUnresolvedLog > 30000) {
+    state._lastUnresolvedLog = now;
+    console.warn(`[isapi] Cannot resolve camera for event on ${state.ip}:${state.port} ch=${channelID} (suppressing repeats for 30s)`);
+  }
   return null;
 }
 
@@ -419,6 +425,11 @@ function resolveCameraId(state, rawEvent) {
  * Schedule a reconnection with exponential backoff.
  */
 function scheduleReconnect(state, fixedDelay) {
+  // Endpoint was intentionally closed (e.g. its last camera was deleted) — do not
+  // resurrect it. Destroying the request fires res 'error'/'end' which lands here;
+  // without this guard it would reconnect forever to a camera that no longer exists.
+  if (state.closing) return;
+
   // Clear any pending reconnect
   if (state.retryTimer) {
     clearTimeout(state.retryTimer);
@@ -549,13 +560,18 @@ function disconnectEndpoint(connKey) {
   const state = connections.get(connKey);
   if (!state) return;
 
-  if (state.retryTimer) clearTimeout(state.retryTimer);
+  // Mark as closing FIRST so the res 'error'/'end' triggered by destroy() below
+  // doesn't schedule a reconnect (which would keep the dead endpoint alive).
+  state.closing = true;
+  if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
   if (state.request) {
     try { state.request.destroy(); } catch (e) {}
+    state.request = null;
   }
   state.connected = false;
   updateCameraStatus(state, false);
   connections.delete(connKey);
+  console.log(`[isapi] ${state.ip}:${state.port} — endpoint closed (no cameras left)`);
 }
 
 /**

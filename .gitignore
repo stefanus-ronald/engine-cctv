@@ -4,6 +4,12 @@ node_modules/
 # ── Local secrets & config ──
 .env
 
+# ── Runtime data (camera credentials / local state — never commit) ──
+cameras.json
+nvrs.json
+dashboard.json
+timezone.json
+
 # ── go2rtc binary (download per-OS) & generated config ──
 bin/go2rtc
 bin/go2rtc.exe

@@ -8,22 +8,14 @@ UI = single-page app (vanilla JS), diakses lewat browser di LAN.
 
 ---
 
-## 0. ⚡ Mulai cepat (kalau Anda menerima file ZIP)
-
-ZIP ini **sengaja tidak menyertakan** beberapa file (agar ringan & aman). Anda **wajib** menyiapkannya di PC baru:
-
-| Tidak ada di ZIP | Cara menyiapkan |
-|---|---|
-| `node_modules/` | Jalankan `npm install` |
-| `bin/go2rtc.exe` (engine WebRTC) | Unduh & taruh di `bin/` (lihat langkah 2) |
-| `.env` (konfigurasi) | Salin dari `.env.example` lalu sesuaikan |
-| **FFmpeg** | Install & masukkan ke PATH (lihat langkah 1) |
+## 0. ⚡ Mulai cepat
 
 **Langkah 5 menit (Windows + PowerShell):**
 
 ```powershell
-# 1) Ekstrak ZIP, lalu masuk ke foldernya
-cd C:\path\ke\ENGINE-CCTV
+# 1) Clone & masuk ke folder
+git clone <repo-url>
+cd ENGINE-CCTV
 
 # 2) Pastikan Node.js & FFmpeg sudah terpasang
 node -v            # harus 18+
@@ -32,17 +24,16 @@ ffmpeg -version    # kalau "not recognized" → install FFmpeg dulu (langkah 1)
 # 3) Install dependency
 npm install
 
-# 4) Siapkan binary go2rtc → unduh go2rtc_win64.zip dari
-#    https://github.com/AlexxIT/go2rtc/releases  → ekstrak → taruh sebagai bin\go2rtc.exe
+# 4) Siapkan binary go2rtc (engine WebRTC) → unduh dari
+#    https://github.com/AlexxIT/go2rtc/releases → taruh sebagai bin\go2rtc.exe
 
-# 5) Buat file konfigurasi .env
+# 5) Siapkan konfigurasi & data dari file contoh
 Copy-Item .env.example .env
-#    (lalu edit .env bila perlu — lihat langkah 4)
+Copy-Item cameras.example.json cameras.json
+Copy-Item nvrs.example.json nvrs.json
+#    lalu edit cameras.json / nvrs.json sesuai jaringan Anda (lihat langkah 4)
 
-# 6) Pastikan cameras.json & nvrs.json cocok dengan jaringan Anda
-#    (IP/host kamera & NVR harus benar — lihat langkah 4b & 4c)
-
-# 7) Jalankan
+# 6) Jalankan
 npm start
 ```
 
@@ -71,16 +62,20 @@ Buka browser ke **http://localhost:3000**. Selesai. Detail tiap langkah ada di b
 
 ## 2. Salin file yang TIDAK ikut Git
 
-`.gitignore` mengecualikan file berikut — kalau PC baru meng-clone dari Git, file ini **tidak ikut** dan harus disiapkan manual:
+`.gitignore` mengecualikan file berikut (berisi kredensial / state lokal) — di PC baru, file ini **tidak ikut** dan harus disiapkan manual:
 
 ```
 node_modules/      → dibuat oleh `npm install`
 .env               → salin dari .env.example, isi sesuai jaringan Anda
+cameras.json       → salin dari cameras.example.json, isi kamera IP Anda
+nvrs.json          → salin dari nvrs.example.json, isi recorder Anda
+dashboard.json     → dibuat OTOMATIS saat Anda menata grid (opsional: salin dari dashboard.example.json)
+timezone.json      → dibuat OTOMATIS saat memilih negara di Settings (default Indonesia/WIB)
 bin/go2rtc*        → binary go2rtc (lihat di bawah)
 go2rtc.yaml        → dibuat OTOMATIS oleh server saat start (jangan dibuat manual)
 ```
 
-> Kalau Anda memindah proyek dengan **copy folder** (bukan git clone), `bin/go2rtc.exe`, `cameras.json`, dan `nvrs.json` ikut terbawa — lewati langkah binary.
+> File `*.example.json` (dan `.env.example`) **ikut di-commit** sebagai template tanpa kredensial. Salin → buang akhiran `.example` → isi nilai asli. File aslinya sengaja di-_ignore_ agar password kamera tidak pernah ter-commit.
 
 **Menyiapkan binary go2rtc** (bila belum ada di `bin/`):
 - **Windows:** unduh `go2rtc_win64.zip` dari <https://github.com/AlexxIT/go2rtc/releases>, ekstrak, taruh sebagai `bin/go2rtc.exe`.
@@ -223,12 +218,15 @@ PC server juga harus bisa **menjangkau** kamera/NVR di port RTSP (mis. 554, 5541
 
 ```
 ENGINE-CCTV/
-├─ src/                # backend (server, router, camera-manager, nvr-sync, isapi/, webrtc/, mjpeg/)
-├─ public/             # frontend SPA (index.html, js/app.js, css/)
-├─ bin/                # binary go2rtc
-├─ Docs/               # dokumentasi fitur & changelog (V-001 … V-009)
-├─ cameras.json        # kamera IP standalone
-├─ nvrs.json           # registry NVR (auto-sync)
-├─ .env                # konfigurasi (dibuat dari .env.example)
+├─ src/                  # backend (server, router, camera-manager, nvr-sync, isapi/, webrtc/, mjpeg/)
+├─ public/               # frontend SPA (index.html, js/app.js, css/)
+├─ bin/                  # binary go2rtc (di-ignore)
+├─ Docs/                 # dokumentasi fitur & changelog (V-001 … V-012)
+├─ *.example.json        # template (cameras/nvrs/dashboard/timezone) — di-commit, tanpa kredensial
+├─ cameras.json          # kamera IP standalone (di-ignore — salin dari .example)
+├─ nvrs.json             # registry NVR auto-sync (di-ignore — salin dari .example)
+├─ dashboard.json        # layout grid tersimpan (di-ignore, dibuat otomatis)
+├─ timezone.json         # zona waktu playback (di-ignore, dibuat otomatis)
+├─ .env                  # konfigurasi (di-ignore — salin dari .env.example)
 └─ package.json
 ```

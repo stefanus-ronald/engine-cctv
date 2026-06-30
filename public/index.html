@@ -139,8 +139,24 @@
                 <button class="btn-link" id="cam-export-btn" type="button">Export JSON</button>
               </span>
             </div>
+            <!-- Bulk-action bar — shown when ≥1 camera is selected -->
+            <div class="cam-bulk-bar" id="cam-bulk-bar" style="display:none">
+              <span class="cam-bulk-count"><strong id="cam-bulk-count">0</strong> selected</span>
+              <div class="cam-bulk-actions">
+                <label class="cam-bulk-move">
+                  <span>Move to</span>
+                  <select class="form-select" id="cam-bulk-group">
+                    <option value="">group…</option>
+                  </select>
+                </label>
+                <button class="btn btn-secondary btn-sm" id="cam-bulk-export-btn" type="button">Export</button>
+                <button class="btn btn-danger btn-sm" id="cam-bulk-del-btn" type="button">Delete</button>
+                <button class="btn-link" id="cam-bulk-clear-btn" type="button">Clear</button>
+              </div>
+            </div>
             <table class="cam-table">
               <thead><tr>
+                <th scope="col" class="cam-check-col"><input type="checkbox" id="cam-select-all" aria-label="Select all cameras"></th>
                 <th scope="col">Name</th>
                 <th scope="col">Group</th>
                 <th scope="col">IP Address</th>
@@ -189,8 +205,12 @@
                   <input class="form-input" id="cam-add-ip" placeholder="192.168.1.x">
                 </div>
                 <div class="form-group" style="flex:.7">
-                  <label for="cam-add-rtsp-port">Port</label>
+                  <label for="cam-add-rtsp-port">RTSP port</label>
                   <input class="form-input" id="cam-add-rtsp-port" type="number" value="554" min="1" max="65535">
+                </div>
+                <div class="form-group" style="flex:.8">
+                  <label for="cam-add-web-port" title="Hikvision HTTP/ISAPI port — needed for hardware (Edge AI) detection, sensitivity, and playback">ISAPI / HTTP port</label>
+                  <input class="form-input" id="cam-add-web-port" type="number" value="80" min="1" max="65535" placeholder="80">
                 </div>
               </div>
               <div class="form-row">
@@ -251,11 +271,7 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label for="cam-add-stream-path">RTSP stream path</label>
-                    <input class="form-input" id="cam-add-stream-path" value="/Streaming/Channels/" placeholder="e.g. 101=ch1 main, 102=ch1 sub">
-                  </div>
-                  <div class="form-group" style="flex:.6">
-                    <label for="cam-add-web-port">Web port</label>
-                    <input class="form-input" id="cam-add-web-port" type="number" value="80" min="1" max="65535">
+                    <input class="form-input" id="cam-add-stream-path" value="/Streaming/Channels/101" placeholder="e.g. 101=ch1 main, 102=ch1 sub">
                   </div>
                 </div>
                 <div class="form-group">
@@ -339,6 +355,13 @@
 
         <!-- Display Tab -->
         <div class="tab-pane" id="pane-display" role="tabpanel">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Playback Timezone (Country)</div>
+              <div class="setting-desc">Recording times are shown in this country's capital timezone</div>
+            </div>
+            <select class="form-select" style="width:230px" id="set-country" aria-label="Playback timezone country"></select>
+          </div>
           <div class="setting-row">
             <div>
               <div class="setting-label">Grid Gap Size</div>

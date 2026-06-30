@@ -20,6 +20,12 @@ const StreamAdapter = (() => {
   // WebRTC availability — checked once at startup via /health
   let _webrtcAvailable = null; // null = unknown, true/false = checked
 
+  // Notify the UI (e.g. the protocol badge) whenever effective availability changes.
+  function _emitAvailability() {
+    try { document.dispatchEvent(new CustomEvent('streamprotocolchange', { detail: { webrtcAvailable: _webrtcAvailable } })); }
+    catch (e) { /* no-op */ }
+  }
+
   const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -45,6 +51,7 @@ const StreamAdapter = (() => {
     if (!_webrtcAvailable) {
       console.log('[stream] WebRTC unavailable — all streams will use MJPEG');
     }
+    _emitAvailability();
     return _webrtcAvailable;
   }
 
@@ -56,26 +63,92 @@ const StreamAdapter = (() => {
    * If the same camera is already connected at this tileIndex,
    * transfers the stream to the new element (avoids full reconnect).
    */
-  function connect(tileElement, cameraId, protocol, tileIndex) {
+  function connect(tileElement, cameraId, protocol, tileIndex, quality, staggerMs) {
+    quality = quality === 'sub' ? 'sub' : 'main';
+    const desired = (protocol === 'webrtc' && _webrtcAvailable !== false) ? 'webrtc' : 'mjpeg';
     const existing = connections.get(tileIndex);
 
-    // Fast path: reuse WebRTC connection if same camera is already connected
-    if (existing && existing.cameraId === cameraId && existing.type === 'webrtc'
-        && existing.pc && !existing.cancelled) {
-      _transferWebRTC(existing, tileElement);
+    // Reuse path: the same camera+quality+protocol is already live for this tile
+    // index (its media element may have been parked during a grid re-render) —
+    // adopt the existing element instead of reconnecting. This keeps WebRTC AND
+    // MJPEG streams alive across layout changes.
+    if (existing && existing.cameraId === cameraId && existing.quality === quality
+        && existing.type === desired && existing.mediaEl && !existing.cancelled) {
+      _adoptMedia(tileElement, existing);
+      existing.tile = tileElement;
       return;
     }
 
-    // Full disconnect + reconnect
+    // Full disconnect + (re)connect
     disconnect(tileIndex);
 
-    if (protocol === 'webrtc' && _webrtcAvailable === false) {
-      _connectMJPEG(tileElement, cameraId, tileIndex);
-    } else if (protocol === 'webrtc') {
-      _connectWebRTC(tileElement, cameraId, tileIndex);
-    } else {
-      _connectMJPEG(tileElement, cameraId, tileIndex);
+    const fresh = () => {
+      if (desired === 'webrtc') _connectWebRTC(tileElement, cameraId, tileIndex, quality);
+      else _connectMJPEG(tileElement, cameraId, tileIndex, quality);
+    };
+    // Immediate connect runs during createTile (before the tile is appended), so
+    // do NOT gate it on isConnected. Only the staggered/deferred connect checks
+    // isConnected — by then the tile may have been removed during the delay.
+    if (staggerMs > 0) setTimeout(() => { if (tileElement.isConnected) fresh(); }, staggerMs);
+    else fresh();
+  }
+
+  // Move an existing (still-streaming) media element into a freshly-rendered tile,
+  // replacing that tile's placeholder. Preserves the live stream — no reconnect.
+  function _adoptMedia(tile, conn) {
+    const mediaEl = conn.mediaEl;
+    const placeholder = tile.querySelector('.tile-media');
+    if (placeholder && placeholder !== mediaEl) placeholder.replaceWith(mediaEl);
+    else if (!placeholder) tile.prepend(mediaEl);
+    // Moving a <video> between DOM positions pauses it (autoplay won't re-fire) →
+    // black tile. Re-kick playback. <img> multipart streams keep flowing.
+    if (mediaEl.tagName === 'VIDEO') {
+      if (mediaEl.srcObject) { try { mediaEl.play().catch(() => {}); } catch (e) {} }
     }
+    const live = mediaEl.tagName === 'VIDEO' ? !!mediaEl.srcObject : true;
+    _setTileStatus(tile, live ? 'connected' : 'connecting');
+  }
+
+  // Off-screen holder that keeps media elements in the document (so their
+  // streams don't abort) while the grid is rebuilt.
+  function _keepaliveEl() {
+    let k = document.getElementById('stream-keepalive');
+    if (!k) {
+      k = document.createElement('div');
+      k.id = 'stream-keepalive';
+      k.style.cssText = 'position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;pointer-events:none';
+      document.body.appendChild(k);
+    }
+    return k;
+  }
+
+  // Park all live media elements before a grid re-render so innerHTML='' doesn't
+  // tear down their connections. They get re-adopted by connect() per tile.
+  function parkMedia() {
+    const k = _keepaliveEl();
+    for (const conn of connections.values()) {
+      if (conn.mediaEl && conn.mediaEl.parentNode !== k) k.appendChild(conn.mediaEl);
+    }
+  }
+
+  // Re-key two tiles' connections so a drag swap/move keeps its live streams
+  // (they get re-adopted at their new index instead of reconnecting).
+  function swapTiles(a, b) {
+    const ca = connections.get(a);
+    const cb = connections.get(b);
+    if (cb) connections.set(a, cb); else connections.delete(a);
+    if (ca) connections.set(b, ca); else connections.delete(b);
+  }
+
+  // After a rebuild: disconnect tiles that no longer exist and drop any media that
+  // wasn't re-adopted (its camera/tile is gone). Call once the synchronous render
+  // pass has placed all reused elements.
+  function sweep(totalTiles) {
+    for (const [idx] of [...connections]) {
+      if (idx >= totalTiles) disconnect(idx);
+    }
+    const k = document.getElementById('stream-keepalive');
+    if (k) [...k.children].forEach(el => el.remove());
   }
 
   /**
@@ -137,9 +210,9 @@ const StreamAdapter = (() => {
   /**
    * Reconnect a specific tile's stream.
    */
-  function reconnect(tileElement, cameraId, protocol, tileIndex) {
+  function reconnect(tileElement, cameraId, protocol, tileIndex, quality) {
     disconnect(tileIndex);
-    connect(tileElement, cameraId, protocol, tileIndex);
+    connect(tileElement, cameraId, protocol, tileIndex, quality);
   }
 
   /**
@@ -173,7 +246,14 @@ const StreamAdapter = (() => {
 
   // ─── WebRTC ─────────────────────────────────────────────────
 
-  function _connectWebRTC(tile, cameraId, tileIndex) {
+  // go2rtc stream name for a given quality. MAIN keeps the bare cameraId
+  // (backward compatible); SUB uses a suffix the server registers separately.
+  function _srcName(cameraId, quality) {
+    return quality === 'sub' ? `${cameraId}_sub` : cameraId;
+  }
+
+  function _connectWebRTC(tile, cameraId, tileIndex, quality) {
+    quality = quality === 'sub' ? 'sub' : 'main';
     // Find or create the media element inside the tile
     let mediaEl = tile.querySelector('.tile-media');
     if (!mediaEl) {
@@ -206,6 +286,7 @@ const StreamAdapter = (() => {
     const conn = {
       type: 'webrtc',
       cameraId: cameraId,
+      quality: quality,
       pc: null,
       stream: null,
       mediaEl: mediaEl,
@@ -257,7 +338,7 @@ const StreamAdapter = (() => {
             retryTimer = setTimeout(attemptConnection, 3000);
           } else {
             console.log(`[stream] WebRTC failed for ${cameraId}, falling back to MJPEG`);
-            _fallbackToMJPEG(conn.tile, cameraId, tileIndex);
+            _fallbackToMJPEG(conn.tile, cameraId, tileIndex, quality);
           }
         }
       };
@@ -287,7 +368,7 @@ const StreamAdapter = (() => {
 
         if (conn.cancelled) return;
 
-        const response = await fetch(`/api/webrtc?src=${encodeURIComponent(cameraId)}`, {
+        const response = await fetch(`/api/webrtc?src=${encodeURIComponent(_srcName(cameraId, quality))}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/sdp' },
           body: pc.localDescription.sdp,
@@ -300,9 +381,10 @@ const StreamAdapter = (() => {
           _setTileProgress(conn.tile, _rand(84, 90), _rand(91, 94)); // negotiated
         } else if (response.status === 503) {
           _webrtcAvailable = false;
+          _emitAvailability();
           console.log(`[stream] go2rtc unavailable (503), falling back to MJPEG for ${cameraId}`);
           cleanupPC();
-          if (!conn.cancelled) _fallbackToMJPEG(conn.tile, cameraId, tileIndex);
+          if (!conn.cancelled) _fallbackToMJPEG(conn.tile, cameraId, tileIndex, quality);
           return;
         } else {
           throw new Error(`HTTP ${response.status}`);
@@ -317,7 +399,7 @@ const StreamAdapter = (() => {
           retryTimer = setTimeout(attemptConnection, 3000);
         } else {
           console.log(`[stream] WebRTC failed for ${cameraId}, falling back to MJPEG`);
-          _fallbackToMJPEG(conn.tile, cameraId, tileIndex);
+          _fallbackToMJPEG(conn.tile, cameraId, tileIndex, quality);
         }
       }
     }
@@ -336,19 +418,21 @@ const StreamAdapter = (() => {
   /**
    * Fallback: switch a single tile from failed WebRTC to MJPEG.
    */
-  function _fallbackToMJPEG(tile, cameraId, tileIndex) {
+  function _fallbackToMJPEG(tile, cameraId, tileIndex, quality) {
     const conn = connections.get(tileIndex);
     if (conn) {
       conn.cancelled = true;
       if (conn.cleanup) conn.cleanup();
     }
     connections.delete(tileIndex);
-    _connectMJPEG(tile, cameraId, tileIndex);
+    _connectMJPEG(tile, cameraId, tileIndex, quality);
   }
 
   // ─── MJPEG ──────────────────────────────────────────────────
 
-  function _connectMJPEG(tile, cameraId, tileIndex) {
+  function _connectMJPEG(tile, cameraId, tileIndex, quality) {
+    quality = quality === 'sub' ? 'sub' : 'main';
+    const streamUrl = `/mjpeg/${encodeURIComponent(cameraId)}?quality=${quality}`;
     let mediaEl = tile.querySelector('.tile-media');
 
     if (!mediaEl || mediaEl.tagName === 'VIDEO') {
@@ -363,7 +447,7 @@ const StreamAdapter = (() => {
       mediaEl = img;
     }
 
-    mediaEl.src = `/mjpeg/${encodeURIComponent(cameraId)}`;
+    mediaEl.src = streamUrl;
 
     mediaEl.onload = () => {
       _setTileStatus(tile, 'connected');   // 100% — first JPEG painted
@@ -374,7 +458,7 @@ const StreamAdapter = (() => {
       _setTileStatus(tile, 'error');
       retryTimer = setTimeout(() => {
         if (connections.has(tileIndex)) {
-          mediaEl.src = `/mjpeg/${encodeURIComponent(cameraId)}?t=${Date.now()}`;
+          mediaEl.src = `${streamUrl}&t=${Date.now()}`;
         }
       }, 5000);
     };
@@ -382,6 +466,9 @@ const StreamAdapter = (() => {
     connections.set(tileIndex, {
       type: 'mjpeg',
       cameraId: cameraId,
+      quality: quality,
+      mediaEl: mediaEl,
+      tile: tile,
       cancelled: false,
       cleanup: () => {
         if (retryTimer) clearTimeout(retryTimer);
@@ -529,5 +616,8 @@ const StreamAdapter = (() => {
     isConnected,
     recheckWebRTC,
     getEffectiveProtocol,
+    parkMedia,
+    sweep,
+    swapTiles,
   };
 })();

@@ -884,6 +884,16 @@ function saveCustomGroups() {
   localStorage.setItem('go2rtc-custom-groups', JSON.stringify(customGroups));
 }
 
+// Drop leftover custom groups that have no cameras — these accumulate from old
+// sessions / deleted cameras and show up as empty "dummy" groups. A group is
+// kept only while at least one camera references it.
+function pruneEmptyCustomGroups() {
+  const used = new Set(cameras.map(c => c.group));
+  const before = customGroups.length;
+  customGroups = customGroups.filter(g => used.has(g.name));
+  if (customGroups.length !== before) saveCustomGroups();
+}
+
 function getGroupColor(name) {
   if (GROUP_COLORS[name]) return GROUP_COLORS[name];
   const cg = customGroups.find(g => g.name === name);
@@ -934,7 +944,7 @@ async function loadCamerasFromAPI() {
           username: c.username || 'admin',
           password: '',
           rtspPort: c.port || 554,
-          webPort: 80,
+          webPort: c.isapiPort || 80,
           streamPath: c.rtspPath || '/Streaming/Channels/',
           thumbnailUrl: '',
           status: c.status || 'unknown',
@@ -962,31 +972,35 @@ async function loadCamerasFromAPI() {
   return false;
 }
 
-// Fallback: build simulated camera list if API has no cameras
-function buildCameraList() {
-  cameras = [];
-  camIdCounter = 0;
-  for (const [group, names] of Object.entries(CAMERA_GROUPS)) {
-    for (const name of names) {
-      const statuses = ['online','online','online','online','online','offline','error'];
-      const ipNum = camIdCounter + 1;
-      cameras.push({
-        id: `cam-${camIdCounter++}`, name, group,
-        deviceType: 'ipcamera', brand: 'hikvision',
-        ip: `192.168.1.${ipNum}`, username: 'admin', password: 'pass123',
-        rtspPort: 554, webPort: 80, streamPath: '/Streaming/Channels/',
-        thumbnailUrl: '',
-        status: statuses[Math.floor(Math.random() * statuses.length)]
-      });
-    }
-  }
-  buildCameraCapabilities();
-}
-// Initial camera list is loaded in the async init below; buildCameraList() is called
-// as fallback only if no cameras are returned from the API.
-buildCameraList();
+// Start empty — the real camera list is loaded from the backend API in the async
+// init below. No simulated/dummy cameras: an empty backend means an empty grid.
+cameras = [];
+camIdCounter = 0;
+buildCameraCapabilities();
 
 /* ── RTSP URL assembly & helpers ── */
+// Hikvision channels are <channel><stream>: 101 = CH1 main, 102 = CH1 sub.
+// The form's default path "/Streaming/Channels/" has no channel number and makes
+// FFmpeg fail with "400 Bad Request". Auto-complete it to channel 1 main (101).
+function normalizeStreamPath(rawPath) {
+  let p = (rawPath || '').trim();
+  if (!p) return '/Streaming/Channels/101';
+  if (!p.startsWith('/')) p = '/' + p;
+  if (/\/Streaming\/Channels\/?$/i.test(p)) {
+    p = p.replace(/\/+$/, '') + '/101';
+  }
+  return p;
+}
+
+// Derive the Hikvision channel number from a stream path so detection/playback
+// target the right channel: 101 → "1", 602 → "6". Defaults to "1".
+function channelIdFromPath(rtspPath) {
+  const m = (rtspPath || '').match(/\/Streaming\/Channels\/(\d+)/i);
+  if (!m) return '1';
+  const num = parseInt(m[1], 10);
+  return String(Math.floor(num / 100) || num || 1);
+}
+
 function assembleRtspUrl(cam) {
   const user = cam.username || '';
   const pass = cam.password || '';
@@ -1032,7 +1046,7 @@ function readFormFields() {
     password: document.getElementById('cam-add-pass').value,
     rtspPort: parseInt(document.getElementById('cam-add-rtsp-port').value, 10) || 554,
     webPort: parseInt(document.getElementById('cam-add-web-port').value, 10) || 80,
-    streamPath: document.getElementById('cam-add-stream-path').value.trim() || '/Streaming/Channels/',
+    streamPath: normalizeStreamPath(document.getElementById('cam-add-stream-path').value),
     name: document.getElementById('cam-add-name').value.trim(),
     group: document.getElementById('cam-add-group').value,
     thumbnailUrl: document.getElementById('cam-add-thumb').value.trim()
@@ -1085,6 +1099,23 @@ let tileAudioState = {};    // tileIndex -> boolean
 let tileAutoHq = {};        // tileIndex -> boolean (auto-promoted HQ on focus)
 let focusedTile = null;
 let focusAutoHqIndex = null;  // tile that was auto-promoted to HQ on expand
+
+// Effective HQ (MAIN vs SUB) for a tile: an explicit per-tile toggle wins;
+// otherwise a freshly-placed tile follows the global "Default Stream Quality"
+// setting (Settings → Streams). main = HQ, sub = not HQ.
+function tileIsHq(index) {
+  if (index in tileHqState) return !!tileHqState[index];
+  return settings.defaultQuality === 'main';
+}
+
+// Swap two keys in a plain index→value map. Missing keys stay missing (so a tile
+// that follows the global default isn't pinned to an explicit value after a swap).
+function _swapKey(map, a, b) {
+  const hasA = a in map, hasB = b in map;
+  const va = map[a], vb = map[b];
+  if (hasB) map[a] = vb; else delete map[a];
+  if (hasA) map[b] = va; else delete map[b];
+}
 let selectedTileIndex = null; // keyboard-selected tile
 let allMuted = false;
 let maxStreams = 36;
@@ -1120,6 +1151,72 @@ function saveSettings() {
   applySettings();
 }
 
+/* ── Dashboard auto-persistence ──────────────────────────────────
+   The current grid arrangement (size, layout, which camera sits in which tile,
+   per-tile HQ/audio) is saved to the backend (dashboard.json) so it auto-loads
+   on page reload AND when the engine is restarted. */
+let _dashboardReady = false;   // gate: don't persist until the saved layout is applied
+let _dashboardSaveTimer = null;
+
+function persistDashboard() {
+  if (!_dashboardReady) return; // avoid clobbering saved data during initial load
+  clearTimeout(_dashboardSaveTimer);
+  _dashboardSaveTimer = setTimeout(() => {
+    const payload = {
+      gridSize,
+      activeLayout: { ...activeLayout },
+      tileAssignments: { ...tileAssignments },
+      tileHqState: { ...tileHqState },
+      tileAudioState: { ...tileAudioState },
+      savedAt: new Date().toISOString(),
+    };
+    fetch('/api/dashboard', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(e => console.warn('Dashboard save failed:', e.message));
+  }, 400);
+}
+
+// Fetch + apply the saved dashboard. Tile assignments are filtered to cameras
+// that still exist (a camera may have been deleted since the layout was saved).
+async function loadDashboardFromAPI() {
+  try {
+    const res = await fetch('/api/dashboard');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.activeLayout) return;
+
+    if (data.activeLayout.type === 'focus') {
+      activeLayout = { ...data.activeLayout };
+    } else {
+      gridSize = data.gridSize || data.activeLayout.size || gridSize;
+      activeLayout = { type: 'uniform', size: gridSize };
+    }
+
+    const validIds = new Set(cameras.map(c => c.id));
+    tileAssignments = {};
+    tileHqState = {};
+    tileAudioState = {};
+    for (const [idx, camId] of Object.entries(data.tileAssignments || {})) {
+      if (!validIds.has(camId)) continue;       // skip cameras that no longer exist
+      tileAssignments[idx] = camId;
+      if (data.tileHqState && data.tileHqState[idx]) tileHqState[idx] = true;
+      if (data.tileAudioState && data.tileAudioState[idx]) tileAudioState[idx] = true;
+    }
+
+    // Reflect the restored layout on the preset buttons, if present.
+    const presets = document.getElementById('grid-presets');
+    if (presets) {
+      presets.querySelectorAll('button[data-size]').forEach(b =>
+        b.classList.toggle('active', activeLayout.type === 'uniform' && +b.dataset.size === activeLayout.size));
+      presets.querySelectorAll('button.focus-preset').forEach(b =>
+        b.classList.toggle('active', activeLayout.type === 'focus' && b.dataset.focusId === activeLayout.id));
+    }
+  } catch (e) {
+    console.warn('Failed to load dashboard from API:', e.message);
+  }
+}
+
 function applySettings() {
   maxStreams = settings.maxStreams;
   document.documentElement.style.setProperty('--grid-gap', settings.gridGap + 'px');
@@ -1149,16 +1246,28 @@ function updateProtocolBadge() {
   const qualityEl = document.getElementById('protocol-badge-quality');
   if (!badgeEl || !protoEl || !qualityEl) return;
 
-  const proto = settings.streamProtocol || 'webrtc';
+  const requested = settings.streamProtocol || 'webrtc';
   const quality = settings.defaultQuality || 'sub';
+  // Show the EFFECTIVE protocol: if WebRTC is selected but go2rtc is unavailable,
+  // streams actually run on MJPEG — reflect that instead of lying with "WEBRTC".
+  const effective = (typeof StreamAdapter !== 'undefined' && StreamAdapter.getEffectiveProtocol)
+    ? StreamAdapter.getEffectiveProtocol(requested) : requested;
+  const fellBack = effective !== requested;
 
-  protoEl.textContent = proto.toUpperCase();
+  protoEl.textContent = fellBack
+    ? `${requested.toUpperCase()}→${effective.toUpperCase()}`
+    : effective.toUpperCase();
+  protoEl.title = fellBack ? 'go2rtc unavailable — using MJPEG fallback' : '';
   qualityEl.textContent = quality.toUpperCase();
 
-  // Style variants
-  badgeEl.classList.toggle('protocol-mjpeg', proto === 'mjpeg');
+  // Style variants — color by the protocol actually in use.
+  badgeEl.classList.toggle('protocol-mjpeg', effective === 'mjpeg');
+  badgeEl.classList.toggle('protocol-fallback', fellBack);
   qualityEl.classList.toggle('quality-main', quality === 'main');
 }
+
+// go2rtc availability resolved/changed asynchronously → refresh the badge.
+document.addEventListener('streamprotocolchange', updateProtocolBadge);
 
 /* ══════════════════════════════════════════
    Sidebar
@@ -1517,6 +1626,9 @@ function renderGrid() {
 
   gridContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   gridContainer.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  // Keep live streams alive across the rebuild: park their media elements before
+  // wiping the grid, so connect() can re-adopt them instead of reconnecting.
+  StreamAdapter.parkMedia();
   gridContainer.innerHTML = '';
 
   const hasAssignments = Object.keys(tileAssignments).length > 0;
@@ -1535,8 +1647,12 @@ function renderGrid() {
     }
     gridContainer.appendChild(tile);
   }
+  // Reused tiles have re-adopted their media synchronously above; drop streams for
+  // tiles that no longer exist and clear any leftover parked media.
+  StreamAdapter.sweep(total);
   updateBudget();
   updateTileSelection();
+  persistDashboard();   // auto-save the arrangement so it survives reload/restart
 }
 
 function updateTileSelection() {
@@ -1554,7 +1670,7 @@ function createTile(index) {
   if (settings.aspectRatio !== 'auto') tile.style.aspectRatio = settings.aspectRatio;
   const camId = tileAssignments[index];
   const cam = camId ? cameras.find(c => c.id === camId) : null;
-  const isHq = tileHqState[index] || false;
+  const isHq = tileIsHq(index);
   const isAutoHq = tileAutoHq[index] || false;
   const audioOn = tileAudioState[index] || false;
 
@@ -1610,15 +1726,12 @@ function createTile(index) {
       <button class="back-btn">&larr; Back to Grid</button>
     `;
 
-    // Connect real stream via StreamAdapter (stagger to avoid overwhelming go2rtc)
-    const staggerDelay = index * 300;
-    if (staggerDelay > 0) {
-      setTimeout(() => {
-        if (tile.isConnected) StreamAdapter.connect(tile, cam.id, settings.streamProtocol, index);
-      }, staggerDelay);
-    } else {
-      StreamAdapter.connect(tile, cam.id, settings.streamProtocol, index);
-    }
+    // Connect real stream via StreamAdapter. A live stream for this tile (parked
+    // during re-render) is adopted synchronously — no reconnect. Only a genuinely
+    // fresh connection is staggered (to avoid overwhelming go2rtc).
+    // HQ on → MAIN channel (high quality), HQ off → SUB channel (low bitrate).
+    const quality = isHq ? 'main' : 'sub';
+    StreamAdapter.connect(tile, cam.id, settings.streamProtocol, index, quality, index * 300);
 
     // Line crossing / intrusion overlay — fetch config now, but only RENDER
     // once the stream is actually showing video (status 'connected'). Showing
@@ -1667,7 +1780,14 @@ function createTile(index) {
   }
 
   // Drop zone
-  tile.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; tile.classList.add('dragover'); });
+  tile.addEventListener('dragover', e => {
+    e.preventDefault();
+    // dropEffect MUST match the drag's effectAllowed or the browser rejects the
+    // drop: tile→tile reordering uses 'move', sidebar→tile placement uses 'copy'.
+    const isTileDrag = e.dataTransfer.types.includes('application/tile-index');
+    e.dataTransfer.dropEffect = isTileDrag ? 'move' : 'copy';
+    tile.classList.add('dragover');
+  });
   tile.addEventListener('dragleave', () => tile.classList.remove('dragover'));
   tile.addEventListener('drop', e => {
     e.preventDefault();
@@ -1677,24 +1797,15 @@ function createTile(index) {
 
     const srcIndex = e.dataTransfer.getData('application/tile-index');
     if (srcIndex !== '' && srcIndex !== undefined) {
-      // Tile swap
+      // Tile swap / move — swap each per-tile map between the two indices, then
+      // re-key the live stream connections so the streams MOVE with the tiles
+      // (adopted at their new index, no reconnect).
       const si = parseInt(srcIndex);
       if (si === index) return; // self-drop guard
-      const targetCam = tileAssignments[index];
-      const targetHq = tileHqState[index];
-      const targetAudio = tileAudioState[index];
-      tileAssignments[index] = tileAssignments[si];
-      tileHqState[index] = tileHqState[si];
-      tileAudioState[index] = tileAudioState[si];
-      if (targetCam) {
-        tileAssignments[si] = targetCam;
-        tileHqState[si] = targetHq;
-        tileAudioState[si] = targetAudio;
-      } else {
-        delete tileAssignments[si];
-        delete tileHqState[si];
-        delete tileAudioState[si];
-      }
+      _swapKey(tileAssignments, si, index);
+      _swapKey(tileHqState, si, index);
+      _swapKey(tileAudioState, si, index);
+      StreamAdapter.swapTiles(si, index);
     } else {
       // Sidebar drop — check duplicate and budget
       if (Object.values(tileAssignments).includes(droppedCamId)) {
@@ -1758,6 +1869,10 @@ function handleTileAction(action, tile, index, srcBtn) {
       badge.className = `quality-badge ${isHq ? 'main' : 'sub'}`;
       badge.textContent = isHq ? 'MAIN' : 'SUB';
       btn.classList.toggle('active', isHq);
+      // Actually switch the stream channel: MAIN (x01) when HQ on, SUB (x02) when off.
+      const hqCam = cameras.find(c => c.id === tileAssignments[index]);
+      if (hqCam) StreamAdapter.reconnect(tile, hqCam.id, settings.streamProtocol, index, isHq ? 'main' : 'sub');
+      persistDashboard();
       break;
     }
     case 'focus': {
@@ -1787,6 +1902,7 @@ function handleTileAction(action, tile, index, srcBtn) {
       if (indicator) indicator.innerHTML = audioOn ? '&#128266;' : '&#128263;';
       // Toggle audio on real stream
       StreamAdapter.setMuted(tile, !audioOn);
+      persistDashboard();
       break;
     }
     case 'reconnect': {
@@ -1794,9 +1910,9 @@ function handleTileAction(action, tile, index, srcBtn) {
       logEvent({ severity: 'info', category: 'stream',
         message: rcCam ? `Stream reconnect — ${rcCam.name}` : 'Stream reconnect requested',
         cameraId: rcCam && rcCam.id, cameraName: rcCam && rcCam.name });
-      // Reconnect the real stream
+      // Reconnect the real stream at the tile's current quality
       if (rcCam) {
-        StreamAdapter.reconnect(tile, rcCam.id, settings.streamProtocol, index);
+        StreamAdapter.reconnect(tile, rcCam.id, settings.streamProtocol, index, tileIsHq(index) ? 'main' : 'sub');
       }
       break;
     }
@@ -2839,14 +2955,9 @@ window.addEventListener('pagehide', () => {
 
 function enterFocus(index) {
   focusedTile = index;
-  // Auto-promote to MAIN if not already HQ
-  if (!tileHqState[index]) {
-    tileHqState[index] = true;
-    tileAutoHq[index] = true;
-    focusAutoHqIndex = index;
-  } else {
-    focusAutoHqIndex = null;
-  }
+  // No auto-HQ on focus/fullscreen — keep whatever quality the tile already uses
+  // (user controls MAIN/SUB explicitly via the HQ button).
+  focusAutoHqIndex = null;
   renderGrid();
 }
 
@@ -7448,6 +7559,101 @@ document.getElementById('set-audio-default').addEventListener('change', e => { s
 document.getElementById('set-grid-gap').addEventListener('input', e => { settings.gridGap = +e.target.value; document.getElementById('set-grid-gap-val').textContent = e.target.value + 'px'; saveSettings(); });
 document.getElementById('set-show-names').addEventListener('change', e => { settings.showNames = e.target.checked; saveSettings(); });
 document.getElementById('set-show-live').addEventListener('change', e => { settings.showLive = e.target.checked; saveSettings(); });
+
+/* ── Playback timezone (country → capital-city fixed offset) ──
+   The backend converts recording times using this single offset. Standard-time
+   offsets (DST not auto-applied). Pick the country whose capital matches the
+   timezone your devices' OSD clock uses. */
+const TZ_COUNTRIES = [
+  { code: 'ID', label: 'Indonesia — Jakarta (WIB)', offsetMin: 420 },
+  { code: 'ID2', label: 'Indonesia — Makassar (WITA)', offsetMin: 480 },
+  { code: 'ID3', label: 'Indonesia — Jayapura (WIT)', offsetMin: 540 },
+  { code: 'MY', label: 'Malaysia — Kuala Lumpur', offsetMin: 480 },
+  { code: 'SG', label: 'Singapore', offsetMin: 480 },
+  { code: 'TH', label: 'Thailand — Bangkok', offsetMin: 420 },
+  { code: 'VN', label: 'Vietnam — Hanoi', offsetMin: 420 },
+  { code: 'PH', label: 'Philippines — Manila', offsetMin: 480 },
+  { code: 'IN', label: 'India — New Delhi', offsetMin: 330 },
+  { code: 'BD', label: 'Bangladesh — Dhaka', offsetMin: 360 },
+  { code: 'PK', label: 'Pakistan — Islamabad', offsetMin: 300 },
+  { code: 'CN', label: 'China — Beijing', offsetMin: 480 },
+  { code: 'HK', label: 'Hong Kong', offsetMin: 480 },
+  { code: 'TW', label: 'Taiwan — Taipei', offsetMin: 480 },
+  { code: 'JP', label: 'Japan — Tokyo', offsetMin: 540 },
+  { code: 'KR', label: 'South Korea — Seoul', offsetMin: 540 },
+  { code: 'AE', label: 'UAE — Abu Dhabi', offsetMin: 240 },
+  { code: 'SA', label: 'Saudi Arabia — Riyadh', offsetMin: 180 },
+  { code: 'TR', label: 'Turkey — Ankara', offsetMin: 180 },
+  { code: 'RU', label: 'Russia — Moscow', offsetMin: 180 },
+  { code: 'EG', label: 'Egypt — Cairo', offsetMin: 120 },
+  { code: 'ZA', label: 'South Africa — Pretoria', offsetMin: 120 },
+  { code: 'NG', label: 'Nigeria — Abuja', offsetMin: 60 },
+  { code: 'GB', label: 'United Kingdom — London', offsetMin: 0 },
+  { code: 'DE', label: 'Germany — Berlin', offsetMin: 60 },
+  { code: 'FR', label: 'France — Paris', offsetMin: 60 },
+  { code: 'NL', label: 'Netherlands — Amsterdam', offsetMin: 60 },
+  { code: 'ES', label: 'Spain — Madrid', offsetMin: 60 },
+  { code: 'IT', label: 'Italy — Rome', offsetMin: 60 },
+  { code: 'US', label: 'United States — Washington DC (ET)', offsetMin: -300 },
+  { code: 'MX', label: 'Mexico — Mexico City', offsetMin: -360 },
+  { code: 'BR', label: 'Brazil — Brasília', offsetMin: -180 },
+  { code: 'AR', label: 'Argentina — Buenos Aires', offsetMin: -180 },
+  { code: 'AU', label: 'Australia — Canberra', offsetMin: 600 },
+  { code: 'NZ', label: 'New Zealand — Wellington', offsetMin: 720 },
+];
+
+function _fmtUtcOffset(off) {
+  const sign = off < 0 ? '-' : '+';
+  const a = Math.abs(off), h = Math.floor(a / 60), m = a % 60;
+  return `UTC${sign}${h}${m ? ':' + String(m).padStart(2, '0') : ''}`;
+}
+
+function populateCountryDropdown() {
+  const sel = document.getElementById('set-country');
+  if (!sel) return;
+  sel.innerHTML = TZ_COUNTRIES.map(c =>
+    `<option value="${c.code}" data-off="${c.offsetMin}">${esc(c.label)} (${_fmtUtcOffset(c.offsetMin)})</option>`
+  ).join('');
+}
+
+let _tzCountry = 'ID', _tzOffsetMin = 420;
+
+async function loadTimezoneFromAPI() {
+  populateCountryDropdown();
+  try {
+    const r = await fetch('/api/timezone');
+    if (r.ok) {
+      const d = await r.json();
+      if (d && Number.isFinite(Number(d.offsetMin))) {
+        _tzOffsetMin = Number(d.offsetMin);
+        _tzCountry = d.country || _tzCountry;
+      }
+    }
+  } catch (e) { /* keep defaults */ }
+  const sel = document.getElementById('set-country');
+  if (sel) {
+    const byCode = TZ_COUNTRIES.find(c => c.code === _tzCountry);
+    const byOff = TZ_COUNTRIES.find(c => c.offsetMin === _tzOffsetMin);
+    sel.value = (byCode || byOff || TZ_COUNTRIES[0]).code;
+  }
+}
+
+document.getElementById('set-country').addEventListener('change', e => {
+  const opt = e.target.selectedOptions[0];
+  const offsetMin = Number(opt && opt.dataset.off);
+  const country = e.target.value;
+  if (!Number.isFinite(offsetMin)) return;
+  _tzCountry = country; _tzOffsetMin = offsetMin;
+  fetch('/api/timezone', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ country, offsetMin }),
+  }).then(() => {
+    notify(`Playback timezone: ${opt.textContent}`, { category: 'config' });
+    // If the playback modal is open, re-run the day search so the timeline updates.
+    const pbDate = document.getElementById('pb-date');
+    if (pbDate && pbDate.offsetParent !== null && typeof _pbLoadDay === 'function') _pbLoadDay();
+  }).catch(err => console.warn('timezone save failed:', err.message));
+});
 document.getElementById('set-aspect-ratio').addEventListener('change', e => { settings.aspectRatio = e.target.value; saveSettings(); renderGrid(); });
 document.getElementById('set-anim-speed').addEventListener('change', e => { settings.animSpeed = e.target.value; saveSettings(); });
 
@@ -7512,6 +7718,70 @@ function showCamList() {
   renderCameraTable();
 }
 
+// Cameras checked for bulk deletion (tracked by stable camera id, survives re-render).
+const selectedCamIds = new Set();
+
+/**
+ * Delete one or more cameras by id: removes them on the backend (DELETE
+ * /api/cameras/:id so it persists), clears any tile assignments, then re-renders.
+ */
+async function deleteCamerasByIds(ids) {
+  for (const id of ids) {
+    const cam = cameras.find(c => c.id === id);
+    try {
+      await fetch(`/api/cameras/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (e) {
+      console.warn('API delete failed:', e.message);
+    }
+    for (const [k, v] of Object.entries(tileAssignments)) {
+      if (v === id) { delete tileAssignments[k]; delete tileHqState[k]; delete tileAudioState[k]; }
+    }
+    if (cam) {
+      logEvent({ severity: 'warning', category: 'camera',
+        message: `Camera "${cam.name}" deleted`, cameraId: cam.id, cameraName: cam.name });
+    }
+    selectedCamIds.delete(id);
+  }
+  const idSet = new Set(ids);
+  cameras = cameras.filter(c => !idSet.has(c.id));
+  pruneEmptyCustomGroups();   // a group with no cameras left should not linger
+  renderCameraTable();
+  renderSidebar();
+  renderGrid();
+}
+
+// Currently-selected camera ids that still exist (selection survives re-render).
+function selectedCameraIds() {
+  return cameras.filter(c => selectedCamIds.has(c.id)).map(c => c.id);
+}
+
+function updateBulkDeleteBar() {
+  const bar = document.getElementById('cam-bulk-bar');
+  const selectAll = document.getElementById('cam-select-all');
+  const visibleChecks = [...document.querySelectorAll('.cam-row-check')];
+  const checkedCount = visibleChecks.filter(cb => cb.checked).length;
+
+  if (bar) {
+    bar.style.display = checkedCount > 0 ? 'flex' : 'none';
+    const countEl = document.getElementById('cam-bulk-count');
+    if (countEl) countEl.textContent = String(checkedCount);
+    if (checkedCount > 0) {
+      // Refresh the "Move to group" dropdown with the current group list
+      const sel = document.getElementById('cam-bulk-group');
+      if (sel) {
+        const groups = getAllGroupNames();
+        sel.innerHTML = '<option value="">group…</option>'
+          + groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+        sel.value = '';
+      }
+    }
+  }
+  if (selectAll) {
+    selectAll.checked = visibleChecks.length > 0 && checkedCount === visibleChecks.length;
+    selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleChecks.length;
+  }
+}
+
 function renderCameraTable() {
   const tbody = document.getElementById('cam-table-body');
   const q = (camListSearch.value || '').toLowerCase().trim();
@@ -7524,8 +7794,10 @@ function renderCameraTable() {
 
   tbody.innerHTML = rows.map(({ c, i }) => {
     const status = c.status || 'online';
+    const checked = selectedCamIds.has(c.id) ? 'checked' : '';
     return `
     <tr data-idx="${i}">
+      <td class="cam-check-col"><input type="checkbox" class="cam-row-check" data-id="${esc(c.id)}" ${checked} aria-label="Select ${esc(c.name)}"></td>
       <td>${esc(c.name)}</td>
       <td><span class="grp-dot" style="background:${getGroupColor(c.group)}"></span>${esc(c.group)}</td>
       <td style="font-variant-numeric:tabular-nums">${esc(c.ip || '—')}</td>
@@ -7554,20 +7826,81 @@ function renderCameraTable() {
       const idx = +btn.dataset.idx;
       const cam = cameras[idx];
       if (!confirm(`Delete camera "${cam.name}"?`)) return;
-      for (const [k, v] of Object.entries(tileAssignments)) {
-        if (v === cam.id) { delete tileAssignments[k]; delete tileHqState[k]; delete tileAudioState[k]; }
-      }
-      cameras.splice(idx, 1);
-      logEvent({ severity: 'warning', category: 'camera',
-        message: `Camera "${cam.name}" deleted`, cameraId: cam.id, cameraName: cam.name });
-      renderCameraTable();
-      renderSidebar();
-      renderGrid();
+      deleteCamerasByIds([cam.id]);
     });
   });
+
+  tbody.querySelectorAll('.cam-row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedCamIds.add(cb.dataset.id);
+      else selectedCamIds.delete(cb.dataset.id);
+      updateBulkDeleteBar();
+    });
+  });
+
+  updateBulkDeleteBar();
 }
 
 camListSearch.addEventListener('input', renderCameraTable);
+
+/* ── Bulk selection actions ── */
+// Move the selected cameras into a group (persisted via API).
+async function moveCamerasToGroup(ids, group) {
+  for (const id of ids) {
+    const cam = cameras.find(c => c.id === id);
+    if (!cam) continue;
+    cam.group = group;
+    try {
+      await fetch(`/api/cameras/${encodeURIComponent(id)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group }),
+      });
+    } catch (e) { console.warn('API group update failed:', e.message); }
+  }
+  notify(`${ids.length} camera${ids.length !== 1 ? 's' : ''} moved to "${group}"`, { category: 'camera' });
+  renderCameraTable();
+  renderSidebar();
+}
+
+function clearCamSelection() {
+  selectedCamIds.clear();
+  document.querySelectorAll('.cam-row-check').forEach(cb => { cb.checked = false; });
+  updateBulkDeleteBar();
+}
+
+document.getElementById('cam-select-all').addEventListener('change', e => {
+  document.querySelectorAll('.cam-row-check').forEach(cb => {
+    cb.checked = e.target.checked;
+    if (cb.checked) selectedCamIds.add(cb.dataset.id);
+    else selectedCamIds.delete(cb.dataset.id);
+  });
+  updateBulkDeleteBar();
+});
+
+document.getElementById('cam-bulk-del-btn').addEventListener('click', () => {
+  const ids = selectedCameraIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected camera${ids.length !== 1 ? 's' : ''}?`)) return;
+  deleteCamerasByIds(ids);
+});
+
+document.getElementById('cam-bulk-group').addEventListener('change', e => {
+  const group = e.target.value;
+  if (!group) return;
+  const ids = selectedCameraIds();
+  if (!ids.length) { e.target.value = ''; return; }
+  moveCamerasToGroup(ids, group);
+});
+
+document.getElementById('cam-bulk-export-btn').addEventListener('click', () => {
+  const ids = new Set(selectedCameraIds());
+  const subset = cameras.filter(c => ids.has(c.id));
+  if (!subset.length) return;
+  downloadJSON('cameras-selected.json', JSON.stringify(subset, null, 2));
+  notify(`${subset.length} camera${subset.length !== 1 ? 's' : ''} exported`, { category: 'config' });
+});
+
+document.getElementById('cam-bulk-clear-btn').addEventListener('click', clearCamSelection);
 
 /* ── Device mode (IP camera vs NVR) ── */
 function applyDeviceMode() {
@@ -7613,7 +7946,7 @@ function resetCamForm() {
   passEl.value = ''; passEl.type = 'password';
   document.getElementById('cam-add-rtsp-port').value = '554';
   document.getElementById('cam-add-web-port').value = '80';
-  document.getElementById('cam-add-stream-path').value = '/Streaming/Channels/';
+  document.getElementById('cam-add-stream-path').value = '/Streaming/Channels/101';
   const nameEl = document.getElementById('cam-add-name');
   nameEl.value = ''; nameEl.classList.remove('error');
   document.getElementById('cam-add-thumb').value = '';
@@ -7845,7 +8178,7 @@ document.getElementById('cam-add-brand').addEventListener('change', () => {
   const brand = document.getElementById('cam-add-brand').value;
   const pathInput = document.getElementById('cam-add-stream-path');
   if (brand === 'hikvision') {
-    pathInput.value = '/Streaming/Channels/';
+    pathInput.value = '/Streaming/Channels/101';
     document.getElementById('cam-add-rtsp-port').value = '554';
     document.getElementById('cam-add-web-port').value = '80';
   }
@@ -7905,7 +8238,9 @@ document.getElementById('cam-add-btn').addEventListener('click', () => {
       body: JSON.stringify({
         name: fields.name, group: fields.group,
         ip: fields.ip, username: fields.username, password: fields.password,
-        port: fields.rtspPort, rtspPath: fields.streamPath
+        port: fields.rtspPort, rtspPath: fields.streamPath,
+        isapiPort: fields.webPort,
+        detection: { isapi: true, channelID: channelIdFromPath(fields.streamPath) }
       })
     }).catch(e => console.warn('API update failed:', e.message));
 
@@ -7913,7 +8248,7 @@ document.getElementById('cam-add-btn').addEventListener('click', () => {
       name: fields.name, group: fields.group,
       deviceType: 'ipcamera', brand: fields.brand,
       ip: fields.ip, username: fields.username, password: fields.password,
-      rtspPort: fields.rtspPort, webPort: fields.webPort,
+      rtspPort: fields.rtspPort, webPort: fields.webPort, isapiPort: fields.webPort,
       streamPath: fields.streamPath, thumbnailUrl: fields.thumbnailUrl
     });
     notify(`Camera "${fields.name}" updated`, { category: 'camera' });
@@ -7925,7 +8260,9 @@ document.getElementById('cam-add-btn').addEventListener('click', () => {
       body: JSON.stringify({
         name: fields.name, group: fields.group,
         ip: fields.ip || '0.0.0.0', username: fields.username, password: fields.password,
-        port: fields.rtspPort, rtspPath: fields.streamPath
+        port: fields.rtspPort, rtspPath: fields.streamPath,
+        isapiPort: fields.webPort,
+        detection: { isapi: true, channelID: channelIdFromPath(fields.streamPath) }
       })
     }).then(res => res.json()).then(apiCam => {
       // Update local camera with server-assigned ID
@@ -7937,7 +8274,7 @@ document.getElementById('cam-add-btn').addEventListener('click', () => {
       id: `cam-${camIdCounter++}`, name: fields.name, group: fields.group,
       deviceType: 'ipcamera', brand: fields.brand,
       ip: fields.ip || '0.0.0.0', username: fields.username, password: fields.password,
-      rtspPort: fields.rtspPort, webPort: fields.webPort,
+      rtspPort: fields.rtspPort, webPort: fields.webPort, isapiPort: fields.webPort,
       streamPath: fields.streamPath, thumbnailUrl: fields.thumbnailUrl,
       status: 'online'
     });
@@ -8507,15 +8844,20 @@ startAnalyticsScheduler();
   // Try loading cameras from backend API
   const loaded = await loadCamerasFromAPI();
   if (loaded) {
-    populateGroupDropdown();
-    renderSidebar();
-    renderGrid();
     console.log('[ENGINE-CCTV] Loaded', cameras.length, 'cameras from API');
-    // Sync checkbox state from camera rules on initial load
-    _syncCheckboxesFromCamera();
   } else {
-    console.log('[ENGINE-CCTV] Using simulated cameras (no API cameras found)');
+    // No cameras on the backend (or API unreachable) — show an empty list, not dummy data.
+    cameras = [];
+    console.log('[ENGINE-CCTV] No cameras from API — starting empty');
   }
+  pruneEmptyCustomGroups();        // remove leftover empty (dummy) groups
+  loadTimezoneFromAPI();           // load playback timezone (country) setting
+  await loadDashboardFromAPI();    // restore the saved grid arrangement
+  _dashboardReady = true;          // arm auto-save now that the saved layout is applied
+  populateGroupDropdown();
+  renderSidebar();
+  renderGrid();
+  _syncCheckboxesFromCamera();
 
   // Refresh line overlays when the engine tab regains focus/visibility.
   // Catches line-crossing changes made on the camera's own web UI without
@@ -8534,7 +8876,9 @@ startAnalyticsScheduler();
         if (data.type === 'camera-added' || data.type === 'camera-removed' || data.type === 'camera-updated') {
           // Reload cameras from API when changes happen from another client
           loadCamerasFromAPI().then(ok => {
+            pruneEmptyCustomGroups();
             if (ok) { renderSidebar(); renderGrid(); }
+            else { cameras = []; renderSidebar(); renderGrid(); }
           });
         }
 

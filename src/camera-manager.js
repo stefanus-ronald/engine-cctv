@@ -15,12 +15,32 @@ function notifyChange(action, camera) {
   changeListeners.forEach(fn => fn(action, camera));
 }
 
+/**
+ * Normalize a Hikvision RTSP stream path so it always points at a real channel.
+ *
+ * The Add-Camera form historically defaulted the path to "/Streaming/Channels/"
+ * (no channel number). FFmpeg rejects that with "400 Bad Request" / "Invalid
+ * data". Hikvision channels are <channel><stream>: 101 = CH1 main, 102 = CH1 sub.
+ * So when the path is empty or ends at ".../Channels/" with no digits, default
+ * to 101 (channel 1, main stream).
+ */
+function normalizeRtspPath(rtspPath) {
+  let p = (rtspPath || '').trim();
+  if (!p) return '/Streaming/Channels/101';
+  if (!p.startsWith('/')) p = '/' + p;
+  // ".../Streaming/Channels" or ".../Streaming/Channels/" with no channel digits
+  if (/\/Streaming\/Channels\/?$/i.test(p)) {
+    p = p.replace(/\/+$/, '') + '/101';
+  }
+  return p;
+}
+
 function buildRtspUrl(cam) {
   const user = cam.username || 'admin';
   const pass = cam.password || '';
   const host = cam.ip;
   const port = cam.port || 554;
-  const streamPath = cam.rtspPath || '/Streaming/Channels/101';
+  const streamPath = normalizeRtspPath(cam.rtspPath);
   return `rtsp://${user}:${pass}@${host}:${port}${streamPath}`;
 }
 
@@ -30,6 +50,26 @@ function buildRtspUrlWithPath(cam, rtspPath) {
   const host = cam.ip;
   const port = cam.port || 554;
   return `rtsp://${user}:${pass}@${host}:${port}${rtspPath}`;
+}
+
+/**
+ * Build the RTSP URL for a given stream quality: 'main' (high quality) or 'sub'
+ * (low bitrate). Hikvision encodes both in the channel id as <channel><stream>:
+ * 101 = CH1 main, 102 = CH1 sub; 601 = CH6 main, 602 = CH6 sub.
+ *
+ * So we take the configured channel, derive its channel number, and force the
+ * stream-type digit: 1 for main, 2 for sub. If the path isn't a Hikvision
+ * /Streaming/Channels/<n> path we leave it unchanged (only main is available).
+ */
+function buildRtspUrlForQuality(cam, quality) {
+  const path = normalizeRtspPath(cam.rtspPath);
+  const streamType = quality === 'sub' ? 2 : 1;
+  const remapped = path.replace(/(\/Streaming\/Channels\/)(\d+)/i, (full, prefix, digits) => {
+    const num = parseInt(digits, 10);
+    const channelNum = Math.floor(num / 100) || num || 1;
+    return `${prefix}${channelNum * 100 + streamType}`;
+  });
+  return buildRtspUrlWithPath(cam, remapped);
 }
 
 /**
@@ -122,7 +162,7 @@ function add(data) {
     isapiPort: data.isapiPort ? parseInt(data.isapiPort) : null,
     username: data.username || 'admin',
     password: data.password || '',
-    rtspPath: data.rtspPath || '/Streaming/Channels/101',
+    rtspPath: normalizeRtspPath(data.rtspPath),
     deviceType: data.deviceType || undefined,   // 'nvr'/'dvr' for recorder channels
     detection: data.detection || null,
     status: 'unknown',
@@ -143,7 +183,7 @@ function update(id, data) {
   if (data.port !== undefined) cam.port = parseInt(data.port) || 554;
   if (data.username !== undefined) cam.username = data.username;
   if (data.password !== undefined) cam.password = data.password;
-  if (data.rtspPath !== undefined) cam.rtspPath = data.rtspPath;
+  if (data.rtspPath !== undefined) cam.rtspPath = normalizeRtspPath(data.rtspPath);
   if (data.isapiPort !== undefined) cam.isapiPort = data.isapiPort ? parseInt(data.isapiPort) : null;
   if (data.detection !== undefined) cam.detection = data.detection;
   if (data.deviceType !== undefined) cam.deviceType = data.deviceType || undefined;
@@ -235,7 +275,9 @@ module.exports = {
   remove,
   setStatus,
   buildRtspUrl,
+  normalizeRtspPath,
   buildRtspUrlWithPath,
+  buildRtspUrlForQuality,
   buildPlaybackRtspUrl,
   buildTracksRtspUrl,
   getDeviceType,

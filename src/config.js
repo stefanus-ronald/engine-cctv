@@ -7,6 +7,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const ROOT_DIR = path.join(__dirname, '..');
 const CAMERAS_FILE = path.join(ROOT_DIR, 'cameras.json');
 const NVRS_FILE = path.join(ROOT_DIR, 'nvrs.json');
+const DASHBOARD_FILE = path.join(ROOT_DIR, 'dashboard.json');
+const TIMEZONE_FILE = path.join(ROOT_DIR, 'timezone.json');
 
 const config = {
   port: parseInt(process.env.PORT) || 3000,
@@ -26,6 +28,16 @@ const config = {
   publicDir: path.join(ROOT_DIR, 'public'),
   camerasFile: CAMERAS_FILE,
   nvrsFile: NVRS_FILE,
+  dashboardFile: DASHBOARD_FILE,
+  timezoneFile: TIMEZONE_FILE,
+
+  // Playback display timezone — a FIXED offset (minutes to ADD to a device's
+  // UTC-tagged recording times to get the wall-clock the user wants to see).
+  // Chosen by country in Settings (capital-city offset). Default: Indonesia/WIB
+  // (UTC+7 = 420). No per-device auto-detection — deterministic & user-controlled.
+  displayCountry: process.env.DISPLAY_COUNTRY || 'ID',
+  displayTzOffsetMin: Number.isFinite(parseInt(process.env.DISPLAY_TZ_OFFSET_MIN))
+    ? parseInt(process.env.DISPLAY_TZ_OFFSET_MIN) : 420,
   go2rtcConfigFile: path.join(ROOT_DIR, 'go2rtc.yaml'),
 
   // NVR auto-sync: on startup, scan every recorder in nvrs.json and (re)build
@@ -87,4 +99,54 @@ function loadNvrs() {
   return [];
 }
 
-module.exports = { config, loadCameras, saveCameras, loadNvrs };
+// Load the saved dashboard layout (grid size, active layout, tile→camera
+// assignments, per-tile HQ/audio state) so the grid auto-restores on reload or
+// engine restart. Returns null when no dashboard has been saved yet.
+function loadDashboard() {
+  try {
+    if (fs.existsSync(config.dashboardFile)) {
+      const data = fs.readFileSync(config.dashboardFile, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load dashboard.json:', err.message);
+  }
+  return null;
+}
+
+// Persist the dashboard layout. `data` is the plain object sent by the UI.
+function saveDashboard(data) {
+  fs.writeFileSync(config.dashboardFile, JSON.stringify(data, null, 2), 'utf8');
+}
+
+// Playback display timezone (country + fixed offset in minutes).
+function loadTimezone() {
+  try {
+    if (fs.existsSync(config.timezoneFile)) {
+      const d = JSON.parse(fs.readFileSync(config.timezoneFile, 'utf8'));
+      if (d && Number.isFinite(Number(d.offsetMin))) {
+        config.displayTzOffsetMin = Number(d.offsetMin);
+        config.displayCountry = d.country || config.displayCountry;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load timezone.json:', err.message);
+  }
+  return { country: config.displayCountry, offsetMin: config.displayTzOffsetMin };
+}
+
+function saveTimezone({ country, offsetMin }) {
+  if (Number.isFinite(Number(offsetMin))) config.displayTzOffsetMin = Number(offsetMin);
+  if (country) config.displayCountry = country;
+  fs.writeFileSync(
+    config.timezoneFile,
+    JSON.stringify({ country: config.displayCountry, offsetMin: config.displayTzOffsetMin }, null, 2),
+    'utf8'
+  );
+  return { country: config.displayCountry, offsetMin: config.displayTzOffsetMin };
+}
+
+// Apply any persisted timezone at startup so config reflects the saved choice.
+loadTimezone();
+
+module.exports = { config, loadCameras, saveCameras, loadNvrs, loadDashboard, saveDashboard, loadTimezone, saveTimezone };

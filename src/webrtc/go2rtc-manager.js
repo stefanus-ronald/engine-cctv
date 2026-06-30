@@ -105,7 +105,7 @@ function buildGo2RTCConfig() {
 
   // Add each camera as a stream with smart fallback strategy
   for (const cam of cameras) {
-    const rtspUrl = cameraManager.buildRtspUrl(cam);
+    const rtspUrl = cameraManager.buildRtspUrlForQuality(cam, 'main');
     const sources = [rtspUrl]; // Primary: passthrough (zero CPU)
 
     // Add alternative RTSP paths (e.g., Dahua cameras with multiple path formats)
@@ -120,6 +120,18 @@ function buildGo2RTCConfig() {
     sources.push(`ffmpeg:${cam.id}#video=h264#hardware#audio=opus#input=-rtsp_transport tcp -i {input}`); // transcode
 
     configObj.streams[cam.id] = sources;
+
+    // SUB-quality stream (low bitrate) under "<id>_sub" so the HQ toggle can
+    // switch a tile to the camera's sub channel (x02). Lazy — go2rtc only pulls
+    // it when a client actually connects.
+    const subUrl = cameraManager.buildRtspUrlForQuality(cam, 'sub');
+    if (subUrl !== rtspUrl) {
+      configObj.streams[`${cam.id}_sub`] = [
+        subUrl,
+        `ffmpeg:${cam.id}_sub#video=copy#audio=copy`,
+        `ffmpeg:${cam.id}_sub#video=h264#hardware#audio=opus#input=-rtsp_transport tcp -i {input}`,
+      ];
+    }
   }
 
   return configObj;
@@ -196,12 +208,20 @@ async function addStream(cameraId) {
   const cam = cameraManager.getById(cameraId);
   if (!cam) return false;
 
-  const rtspUrl = cameraManager.buildRtspUrl(cam);
+  const rtspUrl = cameraManager.buildRtspUrlForQuality(cam, 'main');
   try {
     const response = await fetch(
       `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId)}&name=${encodeURIComponent(rtspUrl)}`,
       { method: 'PUT' }
     );
+    // Also register the sub-quality stream (best-effort) so the HQ toggle works.
+    const subUrl = cameraManager.buildRtspUrlForQuality(cam, 'sub');
+    if (subUrl !== rtspUrl) {
+      fetch(
+        `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId + '_sub')}&name=${encodeURIComponent(subUrl)}`,
+        { method: 'PUT' }
+      ).catch(() => {});
+    }
     return response.ok;
   } catch (err) {
     console.error(`[go2rtc] Failed to add stream ${cameraId}:`, err.message);
@@ -216,6 +236,11 @@ async function removeStream(cameraId) {
       `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId)}`,
       { method: 'DELETE' }
     );
+    // Best-effort removal of the paired sub stream.
+    fetch(
+      `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId + '_sub')}`,
+      { method: 'DELETE' }
+    ).catch(() => {});
     return response.ok;
   } catch (err) {
     console.error(`[go2rtc] Failed to remove stream ${cameraId}:`, err.message);

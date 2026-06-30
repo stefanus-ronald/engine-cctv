@@ -25,6 +25,7 @@
 const http = require('http');
 const crypto = require('crypto');
 const { parseDigestChallenge, buildDigestHeader } = require('./digest-auth');
+const { config } = require('../config');
 const cameraManager = require('../camera-manager');
 const playbackSource = require('./playback-source');
 
@@ -71,68 +72,17 @@ async function isapiPost(ip, port, uri, user, pass, xmlBody) {
 }
 
 // ─── Device time convention / display offset ─────────────────────────────
-// Hikvision devices are INCONSISTENT about playback-search times — and BOTH
-// conventions tag the timestamp with a bare "Z":
-//   • NVR (e.g. DS-7616NI): returns LOCAL wall-clock numerals tagged "Z".
-//   • IP cameras (verified): return TRUE UTC numerals tagged "Z".
-// The on-screen OSD / HDD-management clock is ALWAYS the local wall-clock. The
-// app is pinned to Indonesia time (WIB, UTC+7), so we compute a per-device
-// "display offset" = minutes to ADD to the device's search numerals to get WIB
-// wall-clock:
-//   • local-convention device (NVR)     → offset 0    (numerals already WIB)
-//   • UTC-convention device (IP camera)  → offset +420 (UTC → WIB, fixed +7h)
+// Display timezone: a SINGLE fixed offset (minutes to ADD to the device's
+// UTC-tagged recording numerals to get the wall-clock the user wants to see).
+// Hikvision search times are tagged "Z" (UTC); adding the configured country
+// offset yields local wall-clock matching the OSD. The offset is chosen by
+// country in Settings (capital-city offset) and stored in config.displayTzOffsetMin
+// — NO per-device auto-detection (deterministic & user-controlled). The frontend
+// works in UTC-labeled wall-clock; this module converts to/from device UTC.
 //
-// We DELIBERATELY use a fixed +420 (WIB) instead of reading the device's own
-// timezone field: many cameras ship with a blank/wrong tz, which is exactly what
-// left "new devices" 7 hours behind the OSD. The two conventions are told apart
-// by probing the latest recording (the only reliable signal, since the "Z" tag
-// is identical for both). The frontend works purely in WIB wall-clock; this
-// module converts to the device convention for requests and back for results.
-
-// Indonesia Western Standard Time (WIB) = UTC+7. Fixed, per project requirement.
-const WIB_OFFSET_MIN = 7 * 60;               // 420
-const _offsetCache = new Map();              // "ip:port" -> { offsetMin, at }
-const OFFSET_TTL_MS = 30 * 60 * 1000;
-
-/**
- * Minutes to ADD to this device's search numerals to get WIB (UTC+7) wall-clock.
- * Returns 0 for local-convention devices (numerals already WIB) or +420 for
- * UTC-convention devices (numerals are UTC → shift to WIB). The convention is
- * detected once per device (cached) by comparing the latest recording's numerals
- * against real-UTC-now vs WIB-now. Undetectable (no recent footage) → 0, not
- * cached, so it self-corrects once the device has recordings.
- */
-async function getDisplayOffsetMin(src) {
-  if (!src || !src.ip || !src.isapiPort) return 0;
-  const key = `${src.ip}:${src.isapiPort}`;
-  const cached = _offsetCache.get(key);
-  if (cached && (Date.now() - cached.at) < OFFSET_TTL_MS) return cached.offsetMin;
-
-  const nowUtc = Date.now();
-  const wall = nowUtc + WIB_OFFSET_MIN * 60000;   // device-local "now" in WIB
-
-  // Probe the latest recording over a window wide enough to catch recent footage
-  // under EITHER interpretation (we send numerals the device reads in its own
-  // convention; [now-12h, WIB-now+5m] covers both UTC and WIB readings of "now").
-  const xml = buildSearchXml({
-    trackID: src.track,
-    startIso: toUtcIso(new Date(nowUtc - 12 * 3600e3)),
-    endIso: toUtcIso(new Date(wall + 5 * 60e3)),
-    max: 200, pos: 0,
-  });
-  const r = await isapiPost(src.ip, src.isapiPort, SEARCH_URI, src.username, src.password, xml);
-  if (r.statusCode === 200 && r.body) {
-    const ends = [...r.body.matchAll(/<endTime>([^<]+)<\/endTime>/g)].map((m) => Date.parse(m[1])).filter((n) => !isNaN(n));
-    if (ends.length) {
-      const maxEnd = Math.max(...ends);
-      // The newest recording ended ~"now". If its numerals sit closer to real UTC
-      // now → UTC-convention (shift +WIB). Closer to WIB now → already-local (0).
-      const offsetMin = Math.abs(maxEnd - nowUtc) <= Math.abs(maxEnd - wall) ? WIB_OFFSET_MIN : 0;
-      _offsetCache.set(key, { offsetMin, at: Date.now() });
-      return offsetMin;
-    }
-  }
-  return 0;  // no recordings to classify yet — don't cache, retry next time
+// @returns {number} configured display offset in minutes (e.g. 420 for WIB).
+async function getDisplayOffsetMin(/* src */) {
+  return config.displayTzOffsetMin || 0;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────

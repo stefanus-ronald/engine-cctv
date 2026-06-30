@@ -35,6 +35,9 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 .protocol-badge-quality{color:var(--green);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .protocol-badge-quality.quality-main{color:var(--orange)}
 .protocol-badge.protocol-mjpeg .protocol-badge-proto{color:var(--yellow)}
+/* WebRTC requested but go2rtc unavailable → running on MJPEG fallback */
+.protocol-badge.protocol-fallback{border-color:var(--orange,#e0892a)}
+.protocol-badge.protocol-fallback .protocol-badge-proto{color:var(--orange,#e0892a)}
 
 /* ── Hardware Support Labels (Analytics) ── */
 .dd-hw-support-banner{padding:8px 12px;margin-bottom:8px;border-radius:4px;font-size:12px;display:flex;align-items:center;gap:8px}
@@ -224,6 +227,16 @@ input:focus::placeholder,textarea:focus::placeholder{color:transparent}
 .cam-table td{padding:8px;font-size:13px;color:var(--text-200);border-bottom:1px solid var(--bg-700)}
 .cam-table tr:hover td{background:var(--bg-700)}
 .cam-table .actions{display:flex;gap:4px}
+.cam-table .cam-check-col{width:34px;text-align:center;padding-right:0}
+.cam-table .cam-check-col input{cursor:pointer;width:15px;height:15px;vertical-align:middle}
+/* Bulk-action bar (selection toolbar) */
+.cam-bulk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;justify-content:space-between;
+  margin-top:10px;padding:8px 12px;background:var(--bg-700);border:1px solid var(--accent);border-radius:6px}
+.cam-bulk-count{font-size:13px;color:var(--text-200);white-space:nowrap}
+.cam-bulk-count strong{color:var(--accent)}
+.cam-bulk-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.cam-bulk-move{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-300)}
+.cam-bulk-move .form-select{padding:5px 8px;font-size:12px;min-width:120px}
 .cam-form-editing{background:var(--bg-700);border:1px solid var(--accent);border-radius:6px;padding:12px;margin-bottom:8px}
 
 /* Toggle switch */
@@ -511,9 +524,10 @@ input:focus::placeholder,textarea:focus::placeholder{color:transparent}
   .setting-row{flex-wrap:wrap;gap:8px}
   .seg-control{flex-wrap:wrap}
 
-  /* Camera table — hide secondary columns so it fits a phone */
-  .cam-table th:nth-child(2),.cam-table td:nth-child(2),
-  .cam-table th:nth-child(3),.cam-table td:nth-child(3){display:none}
+  /* Camera table — hide secondary columns (Group, IP) so it fits a phone.
+     Column 1 is now the select checkbox, so Group=3rd, IP=4th. */
+  .cam-table th:nth-child(3),.cam-table td:nth-child(3),
+  .cam-table th:nth-child(4),.cam-table td:nth-child(4){display:none}
 
   /* Playback modal → full screen */
   .pb-modal{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100dvh;border-radius:0}

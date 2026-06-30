@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { config } = require('./config');
+const { config, loadDashboard, saveDashboard, loadTimezone, saveTimezone } = require('./config');
 const cameraManager = require('./camera-manager');
 const mjpegManager = require('./mjpeg/mjpeg-manager');
 const go2rtcProxy = require('./webrtc/go2rtc-proxy');
@@ -29,6 +29,23 @@ const MIME_TYPES = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Probe a single camera's hardware (Edge AI) capabilities right after it's
+ * added/edited, so HW detectors light up without a full server restart.
+ * No-op when ISAPI is disabled or the camera has no ISAPI/HTTP port.
+ */
+function probeCameraCapabilities(cam) {
+  if (!cam || !cam.isapiPort || !config.isapiEnabled) return;
+  const capabilitiesProbe = require('./isapi/capabilities-probe');
+  Promise.resolve()
+    .then(() => capabilitiesProbe.probeCamera(cam))
+    .then((caps) => {
+      cameraManager.setHwCapabilities(cam.id, caps);
+      sseBroadcaster.broadcast({ type: 'capabilities-updated', cameraId: cam.id });
+    })
+    .catch((err) => console.warn(`[isapi-probe] ${cam.id} on-add probe failed:`, err.message));
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -147,6 +164,38 @@ async function handleRequest(req, res) {
     });
   }
 
+  // ── Dashboard layout (auto-restored grid arrangement) ───────────
+  // GET returns the saved layout (or {} if none); PUT persists the current one.
+  if (pathname === '/api/dashboard' && method === 'GET') {
+    return sendJSON(res, 200, loadDashboard() || {});
+  }
+  if (pathname === '/api/dashboard' && method === 'PUT') {
+    const body = await readBody(req);
+    if (!body || typeof body !== 'object') return sendJSON(res, 400, { error: 'invalid dashboard body' });
+    try {
+      saveDashboard(body);
+      return sendJSON(res, 200, { ok: true });
+    } catch (err) {
+      return sendJSON(res, 500, { error: err.message });
+    }
+  }
+
+  // ── Playback display timezone (country → fixed offset) ──────────
+  if (pathname === '/api/timezone' && method === 'GET') {
+    return sendJSON(res, 200, loadTimezone());
+  }
+  if (pathname === '/api/timezone' && method === 'PUT') {
+    const body = await readBody(req);
+    if (!body || !Number.isFinite(Number(body.offsetMin))) {
+      return sendJSON(res, 400, { error: 'offsetMin (number, minutes) is required' });
+    }
+    try {
+      return sendJSON(res, 200, saveTimezone({ country: body.country, offsetMin: Number(body.offsetMin) }));
+    } catch (err) {
+      return sendJSON(res, 500, { error: err.message });
+    }
+  }
+
   // Camera list
   if (pathname === '/api/cameras' && method === 'GET') {
     return sendJSON(res, 200, cameraManager.list());
@@ -160,6 +209,7 @@ async function handleRequest(req, res) {
     }
     const cam = cameraManager.add(body);
     sseBroadcaster.broadcast({ type: 'camera-added', camera: { id: cam.id, name: cam.name } });
+    probeCameraCapabilities(cam);
     return sendJSON(res, 201, cam);
   }
 
@@ -303,6 +353,7 @@ async function handleRequest(req, res) {
       const cam = cameraManager.update(id, body || {});
       if (!cam) return sendJSON(res, 404, { error: 'Camera not found' });
       sseBroadcaster.broadcast({ type: 'camera-updated', camera: { id: cam.id, name: cam.name } });
+      probeCameraCapabilities(cam);
       return sendJSON(res, 200, cam);
     }
 
@@ -338,7 +389,7 @@ async function handleRequest(req, res) {
 
   const mjpegMatch = pathname.match(/^\/mjpeg\/([^/]+)$/);
   if (mjpegMatch && method === 'GET') {
-    return mjpegManager.handleStream(mjpegMatch[1], res);
+    return mjpegManager.handleStream(mjpegMatch[1], res, url.searchParams.get('quality'));
   }
 
   // ── WebRTC / go2rtc API proxy: /api/* ───────────────────────────
