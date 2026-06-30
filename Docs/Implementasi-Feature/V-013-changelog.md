@@ -4,6 +4,8 @@
 **Scope:** Perbaikan dari audit kode menyeluruh (backend Node + frontend SPA). Fokus: hilangkan penyebab **crash proses**, **leak** (process/FD/Map/timer), dan **over-render** yang bikin lag. Tidak ada perubahan fitur — murni stabilitas & performa.
 
 > Verifikasi: `npm run check` (27 file JS lolos `node --check`) + boot server sungguhan (go2rtc ready, kamera connect, HW probe) tanpa crash.
+>
+> **Smoke test runtime (terbukti):** `/health` ok · `GET/PUT /api/timezone` (set JP→read→balik ID) · `GET /api/dashboard` mengembalikan layout tersimpan · **URL malformed `/%E0` → HTTP 400 dan server TETAP HIDUP** (membuktikan P0 anti-crash) · shutdown bersih, **tidak ada proses go2rtc yatim**, port 3000 bebas.
 
 ---
 
