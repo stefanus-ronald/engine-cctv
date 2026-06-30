@@ -1243,11 +1243,9 @@ function applySettings() {
 function updateProtocolBadge() {
   const badgeEl = document.getElementById('protocol-badge');
   const protoEl = document.getElementById('protocol-badge-proto');
-  const qualityEl = document.getElementById('protocol-badge-quality');
-  if (!badgeEl || !protoEl || !qualityEl) return;
+  if (!badgeEl || !protoEl) return;
 
   const requested = settings.streamProtocol || 'webrtc';
-  const quality = settings.defaultQuality || 'sub';
   // Show the EFFECTIVE protocol: if WebRTC is selected but go2rtc is unavailable,
   // streams actually run on MJPEG — reflect that instead of lying with "WEBRTC".
   const effective = (typeof StreamAdapter !== 'undefined' && StreamAdapter.getEffectiveProtocol)
@@ -1258,12 +1256,10 @@ function updateProtocolBadge() {
     ? `${requested.toUpperCase()}→${effective.toUpperCase()}`
     : effective.toUpperCase();
   protoEl.title = fellBack ? 'go2rtc unavailable — using MJPEG fallback' : '';
-  qualityEl.textContent = quality.toUpperCase();
 
   // Style variants — color by the protocol actually in use.
   badgeEl.classList.toggle('protocol-mjpeg', effective === 'mjpeg');
   badgeEl.classList.toggle('protocol-fallback', fellBack);
-  qualityEl.classList.toggle('quality-main', quality === 'main');
 }
 
 // go2rtc availability resolved/changed asynchronously → refresh the badge.

@@ -37,6 +37,12 @@
 ### 6. go2rtc proxy — `src/webrtc/go2rtc-proxy.js`
 - `timeout: 15s` + `proxyReq.on('timeout')`; `req.on('error')` (client abort tak lagi uncaught); `res.on('close')` → `proxyReq.destroy()` (tutup upstream saat client putus); guard `res.headersSent` sebelum kirim 503 → tidak ada socket/FD menggantung.
 
+### 6b. go2rtc `addStream` param `name`/`src` tertukar (BUG) — `src/webrtc/go2rtc-manager.js`
+- ADD memakai `?src=<cameraId>&name=<rtspUrl>` (terbalik) → kamera yang ditambah **saat runtime** terdaftar dengan nama = URL RTSP, bukan `cameraId` → WebRTC `src=cameraId` 404 sampai restart. Diperbaiki ke `?name=<cameraId>&src=<rtspUrl>` (cocok dengan pola yang terbukti di `playback-stream.js`). Sub-stream `<id>_sub` juga.
+
+### 6c. SSE heartbeat — `src/events/sse-broadcaster.js`
+- Ping komentar `: ping` tiap 25s (`unref`) → koneksi half-open (client hilang tanpa FIN) di-prune; `res.on('error')` juga menghapus client. Sebelumnya client mati menumpuk dan tiap broadcast menulis ke socket mati.
+
 ### 7. JPEG parser buffer di-cap — `src/mjpeg/jpeg-parser.js`
 - Cap **8 MB**: bila tak pernah menemukan akhir frame (stream korup), buffer di-reset (resync) alih-alih tumbuh tanpa batas.
 
@@ -58,17 +64,24 @@
 - **Search sidebar**: di-debounce 120ms (tidak rebuild tiap ketukan).
 - **SSE burst**: `camera-*` & `capabilities-updated` di-coalesce (`reloadCamerasCoalesced`, debounce 200ms) → 1 reload+render, bukan N rebuild beruntun.
 
+### 12. xml-parser precompile RegExp — `src/isapi/xml-parser.js`
+- Regex per-tag dikompilasi **sekali** (`_TAG_RE`), bukan `new RegExp(...)` per tag per event. Mengurangi alokasi/GC di jalur panas alert NVR sibuk.
+
+---
+
+## UI kecil
+- Badge protokol kini hanya menampilkan **protokol** (mis. `WEBRTC`), label kualitas `SUB`/`MAIN` dihapus dari topbar (`index.html` + `updateProtocolBadge`). Indikator fallback `WEBRTC→MJPEG` tetap ada.
+
 ---
 
 ## File yang diubah
 - `src/server.js`, `src/router.js`, `src/config.js`
 - `src/mjpeg/mjpeg-manager.js`, `src/mjpeg/jpeg-parser.js`
 - `src/webrtc/go2rtc-manager.js`, `src/webrtc/go2rtc-proxy.js`
-- `src/isapi/alert-stream-manager.js`
-- `public/js/app.js`
+- `src/isapi/alert-stream-manager.js`, `src/isapi/xml-parser.js`
+- `src/events/sse-broadcaster.js`
+- `public/js/app.js`, `public/index.html`
 
-## Belum dikerjakan (low-priority / butuh verifikasi)
-- xml-parser precompile RegExp per-event (mikro-optimasi hot path).
-- `go2rtc-manager.addStream` param `name`/`src` — perlu cek doc go2rtc API sebelum diubah (runtime-add).
-- SSE keepalive/heartbeat untuk prune koneksi half-open.
-- Verifikasi: butuh observasi runtime panjang untuk konfirmasi tidak ada regresi reconnect.
+## Belum dikerjakan (butuh observasi runtime)
+- Verifikasi jangka panjang: konfirmasi tidak ada regresi reconnect (ISAPI/go2rtc) di lingkungan produksi.
+- `addStream` param swap & SSE heartbeat: lolos load-test, tapi idealnya diuji dengan menambah kamera saat runtime + memutus jaringan SSE.

@@ -215,15 +215,19 @@ async function addStream(cameraId) {
 
   const rtspUrl = cameraManager.buildRtspUrlForQuality(cam, 'main');
   try {
+    // go2rtc API: PUT ?name=<streamName>&src=<sourceURL>. The params were SWAPPED
+    // here (name=rtspUrl, src=cameraId), so a runtime-added camera registered a
+    // stream named after its RTSP URL and never under cameraId → WebRTC src=cameraId
+    // 404'd until a full restart. Match the proven order used by playback-stream.js.
     const response = await fetch(
-      `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId)}&name=${encodeURIComponent(rtspUrl)}`,
+      `http://localhost:${config.go2rtcApiPort}/api/streams?name=${encodeURIComponent(cameraId)}&src=${encodeURIComponent(rtspUrl)}`,
       { method: 'PUT' }
     );
     // Also register the sub-quality stream (best-effort) so the HQ toggle works.
     const subUrl = cameraManager.buildRtspUrlForQuality(cam, 'sub');
     if (subUrl !== rtspUrl) {
       fetch(
-        `http://localhost:${config.go2rtcApiPort}/api/streams?src=${encodeURIComponent(cameraId + '_sub')}&name=${encodeURIComponent(subUrl)}`,
+        `http://localhost:${config.go2rtcApiPort}/api/streams?name=${encodeURIComponent(cameraId + '_sub')}&src=${encodeURIComponent(subUrl)}`,
         { method: 'PUT' }
       ).catch(() => {});
     }
