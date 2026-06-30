@@ -17,6 +17,8 @@ const cameraManager = require('../camera-manager');
 
 let go2rtcProcess = null;
 let go2rtcReady = false;
+let go2rtcRestartTimer = null;
+let shuttingDown = false;   // set by stop() so the 'close' handler won't respawn
 
 // ─── YAML Generator ──────────────────────────────────────────────────
 
@@ -165,9 +167,12 @@ function startBinary() {
     console.log(`[go2rtc] Process exited (code ${code})`);
     go2rtcReady = false;
     go2rtcProcess = null;
-    // Auto-restart after 5 seconds
-    setTimeout(() => {
-      if (!go2rtcProcess) startBinary();
+    // Do NOT respawn if we're intentionally shutting down — otherwise stop() kills
+    // the process, this fires, and we spawn an orphan that outlives the app.
+    if (shuttingDown) return;
+    go2rtcRestartTimer = setTimeout(() => {
+      go2rtcRestartTimer = null;
+      if (!go2rtcProcess && !shuttingDown) startBinary();
     }, 5000);
   });
 
@@ -274,6 +279,8 @@ function getApiPort() {
 }
 
 function stop() {
+  shuttingDown = true;
+  if (go2rtcRestartTimer) { clearTimeout(go2rtcRestartTimer); go2rtcRestartTimer = null; }
   if (go2rtcProcess) {
     go2rtcProcess.kill('SIGTERM');
     go2rtcProcess = null;

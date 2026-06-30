@@ -64,6 +64,15 @@ const config = {
   simulatorFallback: process.env.SIMULATOR_FALLBACK !== 'false',
 };
 
+// Atomic JSON write: write to a temp file then rename over the target. A crash
+// or concurrent write can never leave a half-written (corrupt) file that would
+// make the next load throw and wipe the whole list.
+function writeJsonAtomic(filePath, value) {
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8');
+  fs.renameSync(tmp, filePath);
+}
+
 // Load cameras from cameras.json
 function loadCameras() {
   try {
@@ -79,7 +88,7 @@ function loadCameras() {
 
 // Save cameras to cameras.json
 function saveCameras(cameras) {
-  fs.writeFileSync(config.camerasFile, JSON.stringify(cameras, null, 2), 'utf8');
+  writeJsonAtomic(config.camerasFile, cameras);
 }
 
 // Load NVR/DVR recorder registry from nvrs.json.
@@ -116,7 +125,7 @@ function loadDashboard() {
 
 // Persist the dashboard layout. `data` is the plain object sent by the UI.
 function saveDashboard(data) {
-  fs.writeFileSync(config.dashboardFile, JSON.stringify(data, null, 2), 'utf8');
+  writeJsonAtomic(config.dashboardFile, data);
 }
 
 // Playback display timezone (country + fixed offset in minutes).
@@ -138,11 +147,7 @@ function loadTimezone() {
 function saveTimezone({ country, offsetMin }) {
   if (Number.isFinite(Number(offsetMin))) config.displayTzOffsetMin = Number(offsetMin);
   if (country) config.displayCountry = country;
-  fs.writeFileSync(
-    config.timezoneFile,
-    JSON.stringify({ country: config.displayCountry, offsetMin: config.displayTzOffsetMin }, null, 2),
-    'utf8'
-  );
+  writeJsonAtomic(config.timezoneFile, { country: config.displayCountry, offsetMin: config.displayTzOffsetMin });
   return { country: config.displayCountry, offsetMin: config.displayTzOffsetMin };
 }
 

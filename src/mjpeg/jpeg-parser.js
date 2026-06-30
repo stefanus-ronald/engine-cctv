@@ -2,6 +2,11 @@
  * JPEGFrameParser — Extracts complete JPEG frames from a binary stream.
  * Reused from rtsp2web-main/src/mjpeg/mjpeg_multi.js
  */
+// Hard cap on the accumulation buffer. If we never find a frame end (corrupt
+// stream, or input that isn't really MJPEG), the buffer must not grow forever.
+// A single JPEG frame at 1080p is well under this; anything bigger is junk.
+const MAX_BUFFER_BYTES = 8 * 1024 * 1024; // 8 MB
+
 class JPEGFrameParser {
   constructor() {
     this.buffer = Buffer.alloc(0);
@@ -27,6 +32,12 @@ class JPEGFrameParser {
       const frame = this.buffer.slice(0, endIndex + 2);
       frames.push(frame);
       this.buffer = this.buffer.slice(endIndex + 2);
+    }
+
+    // Safety valve: a partial frame is normal (we wait for more data), but an
+    // ever-growing buffer with no end marker is a leak — drop it and resync.
+    if (this.buffer.length > MAX_BUFFER_BYTES) {
+      this.buffer = Buffer.alloc(0);
     }
 
     return frames;

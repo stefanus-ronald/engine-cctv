@@ -118,8 +118,33 @@ function serveStaticFile(res, filePath) {
 
 // ─── Route Handler ────────────────────────────────────────────────────
 
+/**
+ * Top-level request handler. Wraps the router so a thrown error or rejected
+ * promise from ANY route can never crash the process (no global try/catch here
+ * previously → an unhandled rejection took the server down). Always answers the
+ * client with a 500 instead of hanging the socket.
+ */
 async function handleRequest(req, res) {
-  const url = new URL(req.url, `http://localhost:${config.port}`);
+  try {
+    await routeRequest(req, res);
+  } catch (err) {
+    console.error('[router] Unhandled request error:', (err && err.stack) || err);
+    try {
+      if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+      if (!res.writableEnded) res.end(JSON.stringify({ error: 'internal server error' }));
+    } catch (e) { /* socket already gone */ }
+  }
+}
+
+async function routeRequest(req, res) {
+  let url;
+  try {
+    url = new URL(req.url, `http://localhost:${config.port}`);
+  } catch (e) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad request URL' }));
+    return;
+  }
   const pathname = url.pathname;
   const method = req.method;
 
@@ -722,10 +747,20 @@ async function handleRequest(req, res) {
 
   // Serve files from public/ directory — with a hard containment check so a
   // crafted path can never escape publicDir (defense in depth beyond URL parsing).
+  // decodeURIComponent can throw URIError on a malformed escape (e.g. "/%E0") —
+  // guard it so a bad URL is a clean 400, not an uncaught crash. No sync fs here:
+  // serveStaticFile does an async readFile and 404s on missing/dir paths.
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch (e) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad request path' }));
+    return;
+  }
   const root = path.resolve(config.publicDir);
-  const resolved = path.resolve(path.join(root, decodeURIComponent(pathname)));
-  if ((resolved === root || resolved.startsWith(root + path.sep))
-      && fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+  const resolved = path.resolve(path.join(root, decodedPath));
+  if (resolved === root || resolved.startsWith(root + path.sep)) {
     return serveStaticFile(res, resolved);
   }
 

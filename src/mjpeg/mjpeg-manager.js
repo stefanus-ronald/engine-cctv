@@ -36,6 +36,7 @@ function getOrCreateStream(streamKey, cameraId, quality) {
       parser: new JPEGFrameParser(),
       clients: new Set(),
       stopTimer: null,
+      restartTimer: null,
       restartCount: 0,
       altIndex: -1, // -1 = primary path, 0+ = index into rtspAlternatives
     });
@@ -107,12 +108,17 @@ function startFFmpeg(streamKey) {
     console.log(`[mjpeg] FFmpeg for ${cameraId} exited (code ${code})`);
     stream.ffmpeg = null;
 
-    // Auto-restart if clients are still connected, but respect max attempts
+    // Auto-restart if clients are still connected, but respect max attempts.
+    // The restart timer is tracked + re-checks clients so it can't resurrect an
+    // FFmpeg process after everyone disconnected (orphaned process leak).
     if (stream.clients.size > 0) {
       stream.restartCount++;
       if (stream.restartCount <= MAX_RESTART_ATTEMPTS) {
         console.log(`[mjpeg] Restarting FFmpeg for ${cameraId} in 3s... (attempt ${stream.restartCount}/${MAX_RESTART_ATTEMPTS})`);
-        setTimeout(() => startFFmpeg(streamKey), 3000);
+        stream.restartTimer = setTimeout(() => {
+          stream.restartTimer = null;
+          if (stream.clients.size > 0) startFFmpeg(streamKey);
+        }, 3000);
       } else {
         // Try next alternative RTSP path if available
         const cam = cameraManager.getById(cameraId);
@@ -122,7 +128,10 @@ function startFFmpeg(streamKey) {
           stream.altIndex = nextAlt;
           stream.restartCount = 0;
           console.log(`[mjpeg] Trying alternative RTSP path ${nextAlt + 1}/${alts.length} for ${cameraId}: ${alts[nextAlt]}`);
-          setTimeout(() => startFFmpeg(streamKey), 2000);
+          stream.restartTimer = setTimeout(() => {
+            stream.restartTimer = null;
+            if (stream.clients.size > 0) startFFmpeg(streamKey);
+          }, 2000);
         } else {
           console.log(`[mjpeg] All RTSP paths exhausted for ${cameraId} — stopping`);
           cameraManager.setStatus(cameraId, 'error');
@@ -141,7 +150,10 @@ function startFFmpeg(streamKey) {
 
 function stopFFmpeg(streamKey) {
   const stream = streams.get(streamKey);
-  if (!stream || !stream.ffmpeg) return;
+  if (!stream) return;
+  // Cancel any pending auto-restart so a queued restart can't revive the stream.
+  if (stream.restartTimer) { clearTimeout(stream.restartTimer); stream.restartTimer = null; }
+  if (!stream.ffmpeg) return;
 
   console.log(`[mjpeg] Stopping FFmpeg for ${streamKey}`);
   stream.ffmpeg.kill('SIGTERM');
@@ -217,8 +229,12 @@ function handleStream(cameraId, res, quality) {
 
     if (stream.clients.size === 0) {
       stream.stopTimer = setTimeout(() => {
+        stream.stopTimer = null;
         if (stream.clients.size === 0) {
           stopFFmpeg(streamKey);
+          // Drop the per-stream state entirely so the Map (and its JPEG parser
+          // buffer) doesn't grow without bound as camera ids churn over time.
+          streams.delete(streamKey);
         }
       }, 1000);
     }
@@ -243,20 +259,26 @@ function getSnapshot(cameraId, callback) {
     'pipe:1',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
+  // Guard so the callback fires EXACTLY once: 'error' (spawn failed) and 'close'
+  // can both fire, and the timeout below also resolves — a double callback made
+  // the thumbnail route call res.writeHead twice → "headers already sent" crash.
+  let done = false;
+  const finish = (result) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    callback(result);
+  };
+
   const chunks = [];
   ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
-  ffmpeg.on('close', () => {
-    if (chunks.length > 0) {
-      callback(Buffer.concat(chunks));
-    } else {
-      callback(null);
-    }
-  });
-  ffmpeg.on('error', () => callback(null));
+  ffmpeg.on('close', () => finish(chunks.length > 0 ? Buffer.concat(chunks) : null));
+  ffmpeg.on('error', () => finish(null));
 
-  // Timeout after 10 seconds
-  setTimeout(() => {
-    ffmpeg.kill('SIGTERM');
+  // Timeout after 10 seconds — kill ffmpeg and resolve null if it ever hangs.
+  const timer = setTimeout(() => {
+    try { ffmpeg.kill('SIGTERM'); } catch (e) { /* already gone */ }
+    finish(null);
   }, 10000);
 }
 

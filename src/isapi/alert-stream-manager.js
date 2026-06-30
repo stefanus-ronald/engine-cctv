@@ -133,7 +133,13 @@ function connectEndpoint(state) {
       // Step 1 complete: got challenge
       const wwwAuth = res.headers['www-authenticate'];
       let body = '';
-      res.on('data', (chunk) => { body += chunk.toString(); });
+      // Cap the challenge body — a misbehaving device streaming an endless 401
+      // body must not grow this buffer without bound. 64 KB is far more than any
+      // real account-lock XML.
+      res.on('data', (chunk) => {
+        if (body.length < 65536) body += chunk.toString();
+      });
+      res.on('error', () => { try { req.destroy(); } catch (e) {} scheduleReconnect(state); });
       res.on('end', () => {
         // Check for account lock
         const lockStatus = parseAccountLockStatus(body);
@@ -206,12 +212,15 @@ function connectWithAuth(state, challenge) {
       // Don't auto-retry on bad credentials to prevent account lock
       updateCameraStatus(state, false);
       res.resume();
-    } else if (res.statusCode === 403) {
-      console.warn(`[isapi] ${ip}:${port} — 403 Forbidden (VCA resource not enabled?)`);
+    } else if (res.statusCode === 403 || res.statusCode === 404) {
+      // 403 (VCA resource not enabled yet) / 404 (model lacks alertStream) are
+      // often TRANSIENT — the feature can be enabled later. Retry on a long delay
+      // instead of going permanently dead (the old code just res.resume()'d and
+      // never reconnected, so the endpoint stayed offline until a full restart).
+      console.warn(`[isapi] ${ip}:${port} — ${res.statusCode} (feature unavailable) — retrying in 5m`);
       res.resume();
-    } else if (res.statusCode === 404) {
-      console.warn(`[isapi] ${ip}:${port} — 404 (alertStream not supported on this model)`);
-      res.resume();
+      state.request = null;
+      scheduleReconnect(state, 5 * 60 * 1000);
     } else {
       console.warn(`[isapi] ${ip}:${port} — auth response ${res.statusCode}`);
       res.resume();
@@ -258,9 +267,17 @@ function handleAlertStream(state, res) {
   res.setTimeout(0);
 
   res.on('data', (chunk) => {
-    state.buffer += chunk.toString();
-    state.lastEventAt = Date.now();
-    processBuffer(state);
+    // A throw here (XML parse, normalize, broadcast) would be an uncaught
+    // exception on the socket 'data' event → process crash. Contain it: log and
+    // keep the stream alive.
+    try {
+      state.buffer += chunk.toString();
+      state.lastEventAt = Date.now();
+      processBuffer(state);
+    } catch (err) {
+      console.error(`[isapi] ${ip}:${port} — event processing error:`, err.message);
+      state.buffer = '';   // drop possibly-corrupt buffer and resync on next part
+    }
   });
 
   res.on('end', () => {

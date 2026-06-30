@@ -1456,7 +1456,13 @@ function renderSidebar() {
   }
 }
 
-searchInput.addEventListener('input', renderSidebar);
+// Debounce the per-keystroke sidebar rebuild (renderSidebar walks every group +
+// camera + analytics dot) so fast typing doesn't thrash layout.
+let _sidebarSearchTimer = null;
+searchInput.addEventListener('input', () => {
+  clearTimeout(_sidebarSearchTimer);
+  _sidebarSearchTimer = setTimeout(renderSidebar, 120);
+});
 searchClear.addEventListener('click', () => { searchInput.value = ''; renderSidebar(); searchInput.focus(); });
 
 // Sidebar toggle for mobile (off-canvas) + tap-to-close backdrop
@@ -5986,6 +5992,32 @@ function startAnalyticsScheduler() {
   }, 15000);
 }
 
+// Update each on-grid tile's analytics eye-badge IN PLACE when armed detectors
+// change (e.g. a schedule boundary), instead of rebuilding the entire video grid
+// (which churned DOM + parked/adopted every stream + fired a dashboard save).
+function refreshTileEyeBadges() {
+  gridContainer.querySelectorAll('.tile[data-camera-id]').forEach((tile) => {
+    const camId = tile.dataset.cameraId;
+    const armed = getArmedDetectorsForCamera(camId);
+    let badge = tile.querySelector('.tile-eye');
+    if (armed.length === 0) { if (badge) badge.remove(); return; }
+    const eyeState = _tileEyeStateByCam.get(camId) || 'idle';
+    const titleLines = ['Active detectors:'].concat(armed.map((a) => `• ${a.label} (${a.boundTo})`)).join('\n');
+    if (!badge) {
+      const bar = tile.querySelector('.controls-bar');
+      if (!bar) return;
+      badge = document.createElement('button');
+      badge.className = 'ctrl-btn tile-eye';
+      badge.dataset.action = 'analytics-badge';
+      bar.insertBefore(badge, bar.querySelector('[data-action="audio"]') || null);
+    }
+    badge.dataset.eyeState = eyeState;
+    badge.title = titleLines;
+    badge.setAttribute('aria-label', `Active analytics — ${armed.length} detector${armed.length === 1 ? '' : 's'}`);
+    badge.innerHTML = `\u{1F441}<sup class="tile-eye-count">${esc(String(armed.length))}</sup>`;
+  });
+}
+
 function analyticsSchedulerTick() {
   let anyChange = false;
   const seenKeys = new Set();
@@ -6022,7 +6054,7 @@ function analyticsSchedulerTick() {
       if (activeTab && activeTab.dataset.tab === 'analytics') renderAnalyticsTab();
     }
     renderSidebar();
-    renderGrid();
+    refreshTileEyeBadges();   // patch eye-badges in place — no full grid rebuild
   }
 }
 
@@ -7734,8 +7766,19 @@ async function deleteCamerasByIds(ids) {
       console.warn('API delete failed:', e.message);
     }
     for (const [k, v] of Object.entries(tileAssignments)) {
-      if (v === id) { delete tileAssignments[k]; delete tileHqState[k]; delete tileAudioState[k]; }
+      if (v === id) {
+        StreamAdapter.disconnect(+k);   // tear down the stream for this tile (don't leak the pc/img)
+        delete tileAssignments[k]; delete tileHqState[k]; delete tileAudioState[k];
+      }
     }
+    // Clear per-camera timers/state so a deleted camera leaves nothing behind
+    // (the 60s decay timer would otherwise fire a full renderSidebar later).
+    const decayT = _camRecentDecayTimers.get(id);
+    if (decayT) { clearTimeout(decayT); _camRecentDecayTimers.delete(id); }
+    const eyeT = _tileEyeTimers.get(id);
+    if (eyeT) { clearTimeout(eyeT); _tileEyeTimers.delete(id); }
+    _camRecentEventAt.delete(id);
+    _tileEyeStateByCam.delete(id);
     if (cam) {
       logEvent({ severity: 'warning', category: 'camera',
         message: `Camera "${cam.name}" deleted`, cameraId: cam.id, cameraName: cam.name });
@@ -8867,30 +8910,33 @@ startAnalyticsScheduler();
   });
   window.addEventListener('focus', () => refreshLineOverlaysFromCamera());
 
+  // Coalesce bursts of camera/capability SSE events (a bulk import or probe
+  // completion can fan out many in a row) into ONE reload + render instead of N
+  // back-to-back full grid rebuilds.
+  let _sseReloadTimer = null;
+  function reloadCamerasCoalesced() {
+    clearTimeout(_sseReloadTimer);
+    _sseReloadTimer = setTimeout(() => {
+      loadCamerasFromAPI().then(ok => {
+        if (!ok) cameras = [];
+        pruneEmptyCustomGroups();
+        invalidateLineConfigCache();
+        renderSidebar();
+        renderGrid();
+        _syncCheckboxesFromCamera();
+      });
+    }, 200);
+  }
+
   // Connect SSE for real-time events from backend
   try {
     const evtSource = new EventSource('/api/events');
     evtSource.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.type === 'camera-added' || data.type === 'camera-removed' || data.type === 'camera-updated') {
-          // Reload cameras from API when changes happen from another client
-          loadCamerasFromAPI().then(ok => {
-            pruneEmptyCustomGroups();
-            if (ok) { renderSidebar(); renderGrid(); }
-            else { cameras = []; renderSidebar(); renderGrid(); }
-          });
-        }
-
-        if (data.type === 'capabilities-updated') {
-          // ISAPI probe finished — refresh capabilities and line overlays from backend
-          invalidateLineConfigCache();
-          loadCamerasFromAPI().then(ok => {
-            if (!ok) return;
-            renderSidebar();
-            renderGrid();
-            _syncCheckboxesFromCamera();
-          });
+        if (data.type === 'camera-added' || data.type === 'camera-removed'
+            || data.type === 'camera-updated' || data.type === 'capabilities-updated') {
+          reloadCamerasCoalesced();
         }
 
         // Real detection events from ISAPI alert stream or VCA proxy.

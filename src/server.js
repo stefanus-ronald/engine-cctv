@@ -17,6 +17,16 @@ const { handleRequest } = require('./router');
  * - SSE real-time events
  */
 
+// Last-resort safety net: a stray rejection/throw from a background task (an
+// ISAPI socket, an FFmpeg event, a timer) must NOT take the whole server down.
+// Log loudly and keep serving; real bugs still surface in the logs.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] Unhandled promise rejection:', (reason && reason.stack) || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught exception:', (err && err.stack) || err);
+});
+
 async function main() {
   console.log('ENGINE-CCTV starting...');
 
