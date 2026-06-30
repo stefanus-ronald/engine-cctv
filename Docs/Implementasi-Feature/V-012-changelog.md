@@ -187,6 +187,12 @@
 
 ---
 
+## Infrastruktur & rilis
+- **Versi** `package.json` 1.0.0 → **1.1.0**; tambah field `engines.node >=18` + script `npm run check`.
+- **CI** `.github/workflows/ci.yml` (GitHub Actions): `npm ci` + `npm run check` (syntax-check semua JS) di push `main` & semua PR, matrix Node 18/20, dengan cache npm + cancel-in-progress.
+- `scripts/check.js`: walker `node --check` untuk seluruh `src/`, `public/js/`, `scripts/` (27 file, lolos).
+- **Keamanan repo:** `cameras.json`/`nvrs.json`/`dashboard.json`/`timezone.json` di-_ignore_ (berisi kredensial/state); ditambahkan template `*.example.json`. README dirapikan (bagian distribusi ZIP dihapus).
+
 ## File yang diubah
 - `src/config.js`, `src/router.js`, `src/camera-manager.js`, `src/mjpeg/mjpeg-manager.js`, `src/webrtc/go2rtc-manager.js`, `src/isapi/alert-stream-manager.js`
 - `public/index.html`, `public/css/style.css`, `public/js/app.js`, `public/js/stream-adapter.js`
