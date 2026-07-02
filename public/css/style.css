@@ -2099,3 +2099,21 @@ input:focus::placeholder,textarea:focus::placeholder{color:transparent}
 .cam-type-nvr,.cam-type-dvr{background:rgba(0,200,255,.15);color:var(--accent);border:1px solid rgba(0,200,255,.4)}
 .cam-item .cam-type{margin-left:auto}
 .cam-item .cam-num{margin-left:6px}
+
+/* ── ONVIF discovery (V-014): scrollable multi-select card grid ── */
+.onvif-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 8px}
+.onvif-toolbar #onvif-sel-count{font-size:12px;color:var(--muted,#8a97a6)}
+.onvif-toolbar .onvif-add-selected{margin-left:auto}
+.onvif-devices{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-height:300px;overflow-y:auto;padding:2px;margin-top:4px}
+.onvif-card{position:relative;display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(120,144,160,.28);border-radius:8px;background:rgba(120,144,160,.06);cursor:pointer;transition:border-color .12s,background .12s}
+.onvif-card:hover{border-color:rgba(0,200,255,.5);background:rgba(0,200,255,.06)}
+.onvif-card.selected{border-color:var(--accent,#00c8ff);background:rgba(0,200,255,.12)}
+.onvif-card.primary{box-shadow:0 0 0 1px var(--accent,#00c8ff) inset}
+.onvif-card input[type=checkbox]{margin-top:2px;flex-shrink:0;width:16px;height:16px;cursor:pointer}
+.onvif-card-body{min-width:0;flex:1}
+.onvif-card-name{font-size:13px;font-weight:600;color:var(--text,#e6edf3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.onvif-card-meta{font-size:11px;color:var(--muted,#8a97a6);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.onvif-card-status{font-size:11px;margin-top:5px;min-height:14px}
+.onvif-card-status.ok{color:#3fb950}
+.onvif-card-status.err{color:#f85149}
+.onvif-card-status.testing{color:var(--accent,#00c8ff)}

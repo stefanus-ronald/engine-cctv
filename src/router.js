@@ -11,6 +11,7 @@ const playbackSearch = require('./isapi/playback-search');
 const playbackSource = require('./isapi/playback-source');
 const nvrChannelMap = require('./isapi/nvr-channel-map');
 const storageApi = require('./isapi/storage-api');
+const onvifDriver = require('./drivers/onvif-driver');
 const sseBroadcaster = require('./events/sse-broadcaster');
 
 // MIME types for static file serving
@@ -36,7 +37,20 @@ const MIME_TYPES = {
  * No-op when ISAPI is disabled or the camera has no ISAPI/HTTP port.
  */
 function probeCameraCapabilities(cam) {
-  if (!cam || !cam.isapiPort || !config.isapiEnabled) return;
+  if (!cam) return;
+  // ONVIF cameras (V-014, Fase 5): probe via GetServices + GetEventProperties.
+  if (String(cam.protocol || '').toLowerCase() === 'onvif') {
+    const onvifDriver = require('./drivers/onvif-driver');
+    Promise.resolve()
+      .then(() => onvifDriver.getCapabilities(cam))
+      .then((caps) => {
+        cameraManager.setHwCapabilities(cam.id, caps);
+        sseBroadcaster.broadcast({ type: 'capabilities-updated', cameraId: cam.id });
+      })
+      .catch((err) => console.warn(`[onvif-probe] ${cam.id} on-add probe failed:`, err.message));
+    return;
+  }
+  if (!cam.isapiPort || !config.isapiEnabled) return;
   const capabilitiesProbe = require('./isapi/capabilities-probe');
   Promise.resolve()
     .then(() => capabilitiesProbe.probeCamera(cam))
@@ -169,6 +183,10 @@ async function routeRequest(req, res) {
       || /^\/api\/cameras\//.test(pathname)
       || pathname === '/api/nvr/channels'
       || pathname === '/api/nvr/import'
+      || pathname === '/api/onvif/discover'
+      || pathname === '/api/onvif/profiles'
+      || pathname === '/api/onvif/playback/start'
+      || /^\/api\/onvif\/ptz\//.test(pathname)
       || pathname === '/api/storage/check'
       || /^\/api\/detection\//.test(pathname);
     if (guarded) {
@@ -284,6 +302,84 @@ async function routeRequest(req, res) {
     }
     sseBroadcaster.broadcast({ type: 'cameras-imported', count: created.length });
     return sendJSON(res, 201, { added: created.length, cameras: created });
+  }
+
+  // ── ONVIF (V-014, Fase 1) ───────────────────────────────────────
+  // Auto-discover ONVIF devices on the LAN (WS-Discovery, multicast). No DEVICE
+  // creds needed (WS-Discovery is unauthenticated), but the endpoint itself is
+  // token-guarded when CCTV_API_TOKEN is set. POST /api/onvif/discover
+  if (pathname === '/api/onvif/discover' && method === 'POST') {
+    try {
+      const devices = await onvifDriver.discover();
+      return sendJSON(res, 200, { devices });
+    } catch (err) {
+      return sendJSON(res, 200, { devices: [], error: err.message });
+    }
+  }
+
+  // Resolve an ONVIF device's media profiles + RTSP URIs for onboarding.
+  // POST /api/onvif/profiles  { ip, port (ONVIF port), username, password, xaddr? }
+  if (pathname === '/api/onvif/profiles' && method === 'POST') {
+    const body = await readBody(req);
+    if (!body || !body.ip) return sendJSON(res, 400, { error: 'ip is required' });
+    const onvifPort = parseInt(body.port, 10) || 80;
+    if (onvifPort < 1 || onvifPort > 65535) return sendJSON(res, 400, { error: 'port must be 1-65535' });
+    try {
+      const result = await onvifDriver.resolveStreamUris({
+        ip: body.ip, port: onvifPort,
+        username: body.username, password: body.password, xaddr: body.xaddr,
+      });
+      return sendJSON(res, result.error ? 502 : 200, result);
+    } catch (err) {
+      return sendJSON(res, 502, { error: err.message });
+    }
+  }
+
+  // ONVIF Profile-G playback summary. GET /api/onvif/playback/summary?cam=ID
+  if (pathname === '/api/onvif/playback/summary' && method === 'GET') {
+    const cam = cameraManager.getById(url.searchParams.get('cam') || '');
+    if (!cam) return sendJSON(res, 404, { error: 'Camera not found' });
+    if (String(cam.protocol || '').toLowerCase() !== 'onvif') return sendJSON(res, 400, { error: 'not an ONVIF camera' });
+    try {
+      const result = await onvifDriver.searchRecordings(cam);
+      return sendJSON(res, result.error ? 502 : 200, result);
+    } catch (err) {
+      return sendJSON(res, 502, { error: err.message });
+    }
+  }
+
+  // Start ONVIF Profile-G replay for a recording token. POST /api/onvif/playback/start { cam, token }
+  if (pathname === '/api/onvif/playback/start' && method === 'POST') {
+    const body = await readBody(req) || {};
+    const cam = cameraManager.getById(body.cam || '');
+    if (!cam) return sendJSON(res, 404, { error: 'Camera not found' });
+    if (String(cam.protocol || '').toLowerCase() !== 'onvif') return sendJSON(res, 400, { error: 'not an ONVIF camera' });
+    if (!body.token) return sendJSON(res, 400, { error: 'recording token required' });
+    try {
+      const rtspUrl = await onvifDriver.getReplayUri(cam, body.token);
+      const result = await playbackStream.startPlaybackFromUrl(cam.id, rtspUrl);
+      return sendJSON(res, result.error ? 502 : 200, result);
+    } catch (err) {
+      return sendJSON(res, 502, { error: err.message });
+    }
+  }
+
+  // PTZ control for an ONVIF camera. POST /api/onvif/ptz/:id  { action:'move'|'stop', pan,tilt,zoom }
+  const ptzMatch = pathname.match(/^\/api\/onvif\/ptz\/([^/]+)$/);
+  if (ptzMatch && method === 'POST') {
+    const cam = cameraManager.getById(decodeURIComponent(ptzMatch[1]));
+    if (!cam) return sendJSON(res, 404, { error: 'Camera not found' });
+    if (String(cam.protocol || '').toLowerCase() !== 'onvif') return sendJSON(res, 400, { error: 'not an ONVIF camera' });
+    const body = await readBody(req) || {};
+    try {
+      const result = await onvifDriver.ptz(cam, {
+        action: body.action || 'move',
+        pan: body.pan, tilt: body.tilt, zoom: body.zoom,
+      });
+      return sendJSON(res, 200, result);
+    } catch (err) {
+      return sendJSON(res, 502, { error: err.message });
+    }
   }
 
   // Check storage/HDD on a device by credentials (used by the Add-camera "Test
@@ -518,6 +614,17 @@ async function routeRequest(req, res) {
   const lineConfigMatch = pathname.match(/^\/api\/detection\/lines\/([^/]+)$/);
   if (lineConfigMatch && method === 'GET') {
     const cameraId = decodeURIComponent(lineConfigMatch[1]);
+    // Line-crossing config is ISAPI-only. ONVIF cameras have no ISAPI endpoint —
+    // return a benign empty config (not a 400) so the frontend just draws no
+    // overlay instead of logging a Bad Request. (Rule config for ONVIF analytics
+    // is a separate, later concern.)
+    const camObj = cameraManager.getById(cameraId);
+    if (camObj && String(camObj.protocol || '').toLowerCase() === 'onvif') {
+      return sendJSON(res, 200, {
+        lines: [], regions: [], lineDetectionEnabled: false, fieldDetectionEnabled: false,
+        motionEnabled: false, faceEnabled: false, notSupported: 'onvif',
+      });
+    }
     if (!config.isapiEnabled) {
       return sendJSON(res, 400, { error: 'ISAPI detection not enabled' });
     }

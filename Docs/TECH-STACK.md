@@ -13,13 +13,15 @@
 | Dependensi npm | **`dotenv`** saja (lihat `package.json`) |
 | WebRTC | **go2rtc** (binary eksternal, `bin/go2rtc.exe`) |
 | Transcoding/stream | **FFmpeg** (binary eksternal) — MJPEG & download playback |
-| Kamera/Recorder | **Hikvision ISAPI** (HTTP+XML, Digest Auth) + **RTSP** |
+| Kamera/Recorder | **Hikvision ISAPI** (HTTP+XML, Digest Auth) + **ONVIF** (SOAP/XML, WS-Security — V-014) + **RTSP** |
 | Realtime ke browser | **Server-Sent Events (SSE)** untuk event; **WebRTC/MJPEG** untuk video |
 | Frontend | **Vanilla JS** (tanpa framework/bundler) + CSS murni |
 | Penyimpanan | **`cameras.json`** (file) + **localStorage** (preferensi UI) |
 | AI/VCA (opsional) | Proxy ke layanan **Python** eksternal |
 
 > Filosofi: **zero-framework, zero-build**. Tidak ada bundler, transpiler, atau dependensi berat. Mudah dijalankan & diaudit.
+>
+> **Multi-protokol (V-014):** kontrol perangkat di balik lapisan driver (`src/drivers/`), tiap kamera `protocol: 'isapi' | 'onvif' | 'rtsp'` (default `isapi`). ONVIF (WS-Discovery, Media/Events/PTZ/Profile-G) **hand-rolled SOAP** — tetap zero-dep (hanya `dotenv`). Video (go2rtc/FFmpeg) tak berubah: vendor-neutral.
 
 ---
 
@@ -63,6 +65,11 @@
 | RTSP playback | `rtsp://…/Streaming/tracks/<ch*100+1>?starttime=&endtime=` (compact UTC) |
 | RTSP live | `rtsp://…/Streaming/Channels/<ch>01` |
 | Channel list NVR | `GET /ISAPI/ContentMgmt/InputProxy/channels` |
+| ONVIF auth (V-014) | WS-Security UsernameToken (`Base64(SHA1(nonce+created+pass))`) + fallback HTTP Digest + **clock-offset otomatis** via GetSystemDateAndTime utk device dgn jam meleset (V-014 §16) |
+| ONVIF discovery (V-014) | WS-Discovery Probe → UDP multicast `239.255.255.250:3702` |
+| ONVIF live (V-014) | Media `GetProfiles` + `GetStreamUri` → RTSP (kredensial disuntik saat build) |
+| ONVIF events (V-014) | Events `CreatePullPointSubscription` + `PullMessages` → normalisasi → SSE; retry-pull 2× di subscription sama + `Renew` periodik 30s (§16) |
+| ONVIF PTZ / playback (V-014) | PTZ `ContinuousMove`/`Stop`; Profile-G `GetRecordingSummary`/`GetReplayUri` |
 | Motion/Face enabled | `…/motionDetection`, `/ISAPI/Smart/FaceDetect/<ch>` |
 | Event push | SSE (`text/event-stream`) |
 
@@ -83,9 +90,11 @@ ENGINE-CCTV/
 │  ├─ server.js         # bootstrap
 │  ├─ router.js         # semua route HTTP
 │  ├─ config.js, camera-manager.js
-│  ├─ webrtc/           # go2rtc manager/proxy, playback-stream
+│  ├─ drivers/          # (V-014) device-driver (abstraksi), isapi-driver, onvif-driver
+│  ├─ webrtc/           # go2rtc manager/proxy, playback-stream (+ startPlaybackFromUrl)
 │  ├─ mjpeg/            # MJPEG fallback
 │  ├─ isapi/            # digest-auth, alert-stream, probe, line/sensitivity, playback-*, nvr-channel-map
+│  ├─ onvif/            # (V-014) ws-security, soap-client, ws-discovery, media, events, ptz, replay
 │  ├─ events/           # SSE, normalizer, dedup
 │  └─ vca/              # proxy AI/VCA (opsional)
 ├─ public/              # frontend (index.html, js/app.js, js/stream-adapter.js, css/style.css)

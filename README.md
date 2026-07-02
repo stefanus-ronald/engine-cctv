@@ -1,6 +1,8 @@
 # ENGINE-CCTV
 
-Server streaming CCTV terpadu (Node.js, tanpa framework) untuk kamera/recorder **Hikvision**. Satu proses menggabungkan: live **WebRTC** (go2rtc) + fallback **MJPEG** (FFmpeg), **playback** rekaman NVR/DVR, **deteksi/analitik** (ISAPI), dan **manajemen kamera** (IP camera tunggal atau **auto-sync semua channel dari NVR**).
+Server streaming CCTV terpadu (Node.js, tanpa framework) untuk kamera/recorder **Hikvision (ISAPI)** dan kamera **ONVIF multi-merek** (V-014). Satu proses menggabungkan: live **WebRTC** (go2rtc) + fallback **MJPEG** (FFmpeg), **playback** rekaman NVR/DVR, **deteksi/analitik** (ISAPI alert stream + ONVIF PullPoint events), **PTZ** (ONVIF), dan **manajemen kamera** (IP camera tunggal, **auto-sync semua channel dari NVR**, atau **discovery ONVIF** di LAN).
+
+> **Multi-protokol (V-014):** tiap kamera `protocol: 'isapi' | 'onvif' | 'rtsp'` (default `isapi`) di balik lapisan driver. Backbone video (go2rtc/FFmpeg) vendor-neutral. ONVIF live & events tervalidasi di perangkat nyata; detail: [`Docs/Implementasi-Feature/V-014-onvif-design.md`](Docs/Implementasi-Feature/V-014-onvif-design.md).
 
 UI = single-page app (vanilla JS), diakses lewat browser di LAN.
 
@@ -112,7 +114,8 @@ Lalu **edit `.env`** seperlunya (lihat bagian 4).
 | `GO2RTC_BIN` | `./bin/go2rtc.exe` | Ganti ke `./bin/go2rtc` di Linux/macOS. |
 | `FFMPEG_BIN` | `ffmpeg` | Set ke path absolut bila FFmpeg tidak di PATH. |
 | `MJPEG_FPS` / `MJPEG_QUALITY` | `10` / `5` | Mutu fallback MJPEG. |
-| `ISAPI_ENABLED` | `true` | Deteksi/alert ISAPI. |
+| `ISAPI_ENABLED` | `true` | Deteksi/alert ISAPI (kamera Hikvision). |
+| `ONVIF_EVENTS` | `true` | Listener event ONVIF PullPoint per kamera ONVIF (set `false` untuk mematikan). |
 | `NVR_AUTOSYNC` | `true` | Auto-scan NVR saat start (set `false` bila kerja UI di luar LAN). |
 | `CCTV_API_TOKEN` | (kosong) | Opsional. Bila diisi, endpoint mutasi butuh header `x-api-token`. |
 
@@ -183,7 +186,9 @@ Hentikan dengan `Ctrl + C` (shutdown rapi: matikan go2rtc, FFmpeg, listener).
 | `8555` | UDP | WebRTC media (buka bila stream WebRTC diakses dari perangkat lain) |
 | `1984` | TCP | go2rtc API (lokal saja, tak perlu dibuka) |
 
-PC server juga harus bisa **menjangkau** kamera/NVR di port RTSP (mis. 554, 5541) dan ISAPI/web (mis. 80, 81, 85, 88, 8080, 8086).
+PC server juga harus bisa **menjangkau** kamera/NVR di port RTSP (mis. 554, 5541) dan ISAPI/web/ONVIF (mis. 80, 81, 85, 88, 8080, 8086).
+
+> **ONVIF discovery** memakai UDP multicast `239.255.255.250:3702`. Andal di LAN kabel; lewat **WiFi/antar-VLAN sering diblokir** → gunakan **input IP manual + Get profiles** sebagai fallback (Add Camera → Brand: ONVIF).
 
 ---
 
@@ -218,10 +223,10 @@ PC server juga harus bisa **menjangkau** kamera/NVR di port RTSP (mis. 554, 5541
 
 ```
 ENGINE-CCTV/
-├─ src/                  # backend (server, router, camera-manager, nvr-sync, isapi/, webrtc/, mjpeg/)
+├─ src/                  # backend (server, router, camera-manager, nvr-sync, drivers/, isapi/, onvif/, webrtc/, mjpeg/)
 ├─ public/               # frontend SPA (index.html, js/app.js, css/)
 ├─ bin/                  # binary go2rtc (di-ignore)
-├─ Docs/                 # dokumentasi fitur & changelog (V-001 … V-012)
+├─ Docs/                 # dokumentasi fitur & changelog (V-001 … V-014)
 ├─ *.example.json        # template (cameras/nvrs/dashboard/timezone) — di-commit, tanpa kredensial
 ├─ cameras.json          # kamera IP standalone (di-ignore — salin dari .example)
 ├─ nvrs.json             # registry NVR auto-sync (di-ignore — salin dari .example)

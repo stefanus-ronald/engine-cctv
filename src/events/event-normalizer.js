@@ -74,6 +74,54 @@ function normalizeIsapiEvent(rawEvent, cameraId) {
   };
 }
 
+// ONVIF notification topic (keyword) → frontend detectorId. Matched case-
+// insensitively as a substring because topic dialects differ across vendors
+// (e.g. "tns1:RuleEngine/CellMotionDetector/Motion", "tns1:VideoSource/MotionAlarm",
+// "tns1:RuleEngine/LineDetector/Crossed", "tns1:RuleEngine/FieldDetector/ObjectsInside").
+const ONVIF_TOPIC_TO_DETECTOR = [
+  ['linedetector', 'line'],
+  ['linecross', 'line'],
+  ['fielddetector', 'loitering'],
+  ['objectsinside', 'loitering'],
+  ['intrusion', 'loitering'],
+  ['loiter', 'loitering'],
+  ['facedetect', 'face'],
+  ['facerecognition', 'face'],
+  ['motion', 'motion'],       // CellMotionDetector/Motion, MotionAlarm (keep last — broad)
+];
+
+const ONVIF_CONFIDENCE = { motion: 0.80, line: 0.90, loitering: 0.85, face: 0.85 };
+
+/**
+ * Normalize an ONVIF PullPoint notification into the unified detection format.
+ *
+ * @param {object} note - { topic, active, utcTime } from onvif/events.js
+ * @param {string} cameraId
+ * @returns {object|null} normalized event, or null for inactive/unmapped topics
+ */
+function normalizeOnvifEvent(note, cameraId) {
+  if (!note || !note.topic) return null;
+  if (note.active === false) return null;       // event end — skip (mirror ISAPI 'inactive')
+  const topic = String(note.topic).toLowerCase();
+  let detectorId = null;
+  for (const [kw, det] of ONVIF_TOPIC_TO_DETECTOR) {
+    if (topic.includes(kw)) { detectorId = det; break; }
+  }
+  if (!detectorId) return null;                 // tamper/audio/system topics → ignore
+  const ts = note.utcTime && !isNaN(new Date(note.utcTime).getTime())
+    ? new Date(note.utcTime).getTime() : Date.now();
+  return {
+    type: 'detection',
+    cameraId,
+    detectorId,
+    confidence: ONVIF_CONFIDENCE[detectorId] || 0.80,
+    source: 'edge',
+    ts,
+    zone: null,
+    _onvif: { topic: note.topic },
+  };
+}
+
 /**
  * Normalize a Python VCA detection into the unified detection format.
  *
@@ -97,4 +145,4 @@ function normalizeVcaDetection(detection, cameraId) {
   };
 }
 
-module.exports = { normalizeIsapiEvent, normalizeVcaDetection, ISAPI_TO_DETECTOR };
+module.exports = { normalizeIsapiEvent, normalizeVcaDetection, normalizeOnvifEvent, ISAPI_TO_DETECTOR };

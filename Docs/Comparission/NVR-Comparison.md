@@ -1,6 +1,7 @@
 # Perbandingan Platform NVR: Shinobi · Frigate · LightNVR · ENGINE-CCTV (kita)
 
-> Dibuat: 29 Juni 2026 · Fakta Frigate & Shinobi diverifikasi via sumber resmi (lihat [Sumber](#sumber)).
+> Dibuat: 29 Juni 2026 · **Diperbarui: 2 Juli 2026** (status implementasi ONVIF V-014 + hardening/audit — lihat [§5b](#5b-update-2-juli-2026--status-onvif--hasil-audit)).
+> Fakta Frigate & Shinobi diverifikasi via sumber resmi (lihat [Sumber](#sumber)).
 > Dokumen pendamping: [LightNVR-Ringkasan.md](LightNVR-Ringkasan.md) (bedah kode sumber LightNVR).
 
 ---
@@ -32,7 +33,7 @@ Jadi: kita **berbagi fondasi** (go2rtc + FFmpeg) dengan Frigate & LightNVR, tapi
 | **Realtime ke browser** | SSE + WebRTC/MJPEG | WebSocket + go2rtc | Socket.io | libuv + go2rtc |
 | **Streaming engine** | **go2rtc** + FFmpeg | FFmpeg + **go2rtc (bundling v1.9.10)** | **FFmpeg** (per kamera) | FFmpeg + **go2rtc** |
 | **Web server** | Node `http` murni | nginx + FastAPI | Express | libuv + llhttp |
-| **Target kamera** | **Hikvision (ISAPI mendalam)** | Generic RTSP/ONVIF | Generic RTSP/ONVIF | Generic RTSP/ONVIF |
+| **Target kamera** | **Hikvision (ISAPI mendalam) + ONVIF generik (V-014)** | Generic RTSP/ONVIF | Generic RTSP/ONVIF | Generic RTSP/ONVIF |
 | **Lisensi** | **MIT** | **MIT** | ⚠️ Pro=EULA komersial / CE=GPLv3 | GPLv3 |
 | **Deploy** | npm + binary go2rtc | Docker / HA Add-on | Docker / script | Docker / systemd |
 
@@ -49,14 +50,14 @@ Jadi: kita **berbagi fondasi** (go2rtc + FFmpeg) dengan Frigate & LightNVR, tapi
 |-------|---------------|-----------|-----------|-------------|
 | **Live WebRTC** | ✅ (go2rtc) | ✅ (go2rtc) | ⚠️ terbatas (tipe "Streamer") | ✅ (go2rtc) |
 | **Fallback** | MJPEG | jsmpeg / MSE | MJPEG / MSE / HLS / FLV | HLS |
-| **Deteksi motion** | Hardware kamera (ISAPI) | ✅ Built-in (low-overhead) | ✅ Built-in (pixel/pam-diff) | ✅ Built-in + ONVIF |
+| **Deteksi motion** | Hardware kamera (ISAPI) + **ONVIF PullPoint (V-014)** | ✅ Built-in (low-overhead) | ✅ Built-in (pixel/pam-diff) | ✅ Built-in + ONVIF |
 | **Deteksi objek AI (on-frame)** | ❌ (rencana: service Python) | ✅✅ **Inti produk** | ⚠️ Via plugin eksternal | ✅ (SOD/TFLite/API) |
 | **Akselerator AI** | — (rencana ONNX/GPU) | Coral, OpenVINO, TensorRT, ROCm, Hailo | TF, Coral, DeepStack/CodeProject.AI | SOD, TFLite/XNNPACK |
 | **Zona deteksi** | ❌ belum | ✅ Poligon (bottom-center bbox) | ✅ Region | ✅ Poligon (ray-casting) |
 | **Recording sendiri** | ❌ (andalkan NVR) | ✅ MP4 (tanpa re-encode) | ✅ + multi-storage + cloud | ✅ MP4/HLS |
-| **Playback rekaman** | ✅ **dari NVR (ISAPI)** | ✅ dari rekaman sendiri | ✅ timeline + timelapse | ✅ timeline |
+| **Playback rekaman** | ✅ **dari NVR (ISAPI)** + ONVIF Profile-G (V-014, capability-gated) | ✅ dari rekaman sendiri | ✅ timeline + timelapse | ✅ timeline |
 | **Retention policy** | (di NVR) | per-kamera, alerts/detections | age/size auto-purge | **4-tier + protected** |
-| **PTZ** | (via ISAPI) | ✅ (ONVIF) | ✅ | ✅ (ONVIF) |
+| **PTZ** | ✅ **ONVIF (V-014)** — pad di tile; ⚠️ belum teruji hardware | ✅ (ONVIF) | ✅ | ✅ (ONVIF) |
 | **MQTT** | ❌ belum | ✅ (opsional) | ✅ | ✅ |
 | **Home Assistant** | ❌ | ✅✅ (HACS, erat) | ⚠️ komunitas | ✅ (MQTT discovery) |
 | **NVR auto-sync channel** | ✅✅ **(impor semua channel)** | ❌ | ❌ | ❌ |
@@ -123,6 +124,38 @@ Jadi: kita **berbagi fondasi** (go2rtc + FFmpeg) dengan Frigate & LightNVR, tapi
 2. **NVR/DVR auto-sync** — impor semua channel otomatis dari recorder, kelompok per-NVR.
 3. **Playback langsung dari NVR** — tidak perlu rekam ulang → hemat storage masif (NVR sudah punya HDD-nya sendiri).
 4. **MIT + Node.js + zero-build** — mudah dikembangkan, diaudit, dan bebas dipakai komersial.
+
+> **Update V-014:** engine kini **juga mendukung ONVIF generik** (multi-merek) lewat lapisan driver — discovery, live, events PullPoint, PTZ, playback Profile-G — jadi keunggulan Hikvision-deep **tetap** ADA sambil menutup gap "hanya Hikvision" vs Frigate/Shinobi/LightNVR. Detail: [`../Implementasi-Feature/V-014-onvif-design.md`](../Implementasi-Feature/V-014-onvif-design.md).
+
+---
+
+## 5b. Update 2 Juli 2026 — status ONVIF + hasil audit
+
+Kolom "kita" di tabel-tabel atas kini mencerminkan kondisi **setelah** V-014 Fase 0–5 + dua putaran
+hardening (V-014 §16). Ringkasan untuk pembaca dokumen perbandingan ini:
+
+**Apa yang berubah pada posisi kompetitif kita:**
+- Gap **"Generic ONVIF"** vs Frigate/Shinobi/LightNVR **tertutup**: discovery WS-Discovery
+  (multi-NIC), onboarding profil, live via go2rtc, events PullPoint → SSE, PTZ, playback Profile-G
+  (capability-gated). Semua **hand-rolled SOAP zero-dep** — tetap tanpa `npm i onvif`.
+- **Tervalidasi hardware nyata:** live + events + deteksi kapabilitas di kamera ONVIF 192.168.1.185.
+  ⚠️ PTZ & Profile-G playback belum teruji (belum ada perangkat pendukung); playback ONVIF saat ini
+  putar **dari awal rekaman** (go2rtc tak set RTSP Range — seek presisi = follow-up).
+- **Keandalan events ONVIF** kini setara praktik NVR matang: pull gagal di-retry di subscription yang
+  sama (window kehilangan event ~1s, bukan ≥15s), `Renew` periodik, **clock-offset otomatis** utk
+  device berjam meleset (GetSystemDateAndTime), dukungan **HTTPS xaddr** (self-signed, trust LAN),
+  IPv6 xaddr, instance duplikat exit bersih pada EADDRINUSE.
+
+**Temuan audit yang masih jadi backlog** (relevan bila membandingkan kematangan vs platform lain):
+- Race penulisan `cameras.json` (CRUD bersamaan dgn NVR auto-sync — file JSON, bukan SQLite spt
+  Frigate/LightNVR; atomic-rename melindungi korupsi, belum melindungi lost-update).
+- Kredensial kamera **plaintext** di JSON (platform lain juga umumnya plaintext di config, tapi
+  Frigate/LightNVR punya lapisan auth UI lebih lengkap — lihat baris Auth/MFA di §2).
+- MJPEG FFmpeg stop pakai SIGTERM tanpa fallback SIGKILL (zombie teoritis di kamera macet).
+
+**Bukti kualitas:** `npm run test:onvif` = **96 unit test pass** (digest WS-Security vs vektor,
+parser SOAP/ProbeMatch/PullMessages, deteksi auth-failure, integrasi lokal cap 2MB anti-hang);
+detail fix per-item + yang ditolak auditor ada di [V-014 §16](../Implementasi-Feature/V-014-onvif-design.md).
 
 **Yang bisa kita serap (urut prioritas):**
 1. **AI object detection on-frame** (pola Frigate/LightNVR: JPEG snapshot go2rtc → service AI) — fondasi kita sudah lengkap (`vca-proxy.js` + SSE + overlay).

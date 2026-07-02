@@ -195,7 +195,8 @@
                 <div class="form-group" style="flex:1.3">
                   <label for="cam-add-brand">Brand</label>
                   <select class="form-select" id="cam-add-brand">
-                    <option value="hikvision">Hikvision</option>
+                    <option value="hikvision">Hikvision (ISAPI)</option>
+                    <option value="onvif">ONVIF (generic)</option>
                   </select>
                 </div>
                 <div class="form-group" style="flex:1.5">
@@ -230,6 +231,29 @@
               <div class="test-conn-row">
                 <button class="btn btn-secondary" id="cam-test-btn" type="button">Test connection</button>
                 <span class="conn-status" id="conn-status" role="status"></span>
+              </div>
+            </div>
+
+            <!-- ONVIF (generic) — shown when Brand = ONVIF (V-014, Fase 1) -->
+            <div class="form-block" id="onvif-block" hidden>
+              <div class="form-block-title">ONVIF</div>
+              <div class="nvr-hint">Discover cameras on the LAN, or type the IP above and fetch its profiles. The "ISAPI / HTTP port" field above is used as the ONVIF port (usually 80).</div>
+              <div class="test-conn-row">
+                <button class="btn btn-secondary" id="onvif-discover-btn" type="button">Discover ONVIF</button>
+                <button class="btn btn-secondary" id="onvif-profiles-btn" type="button">Get profiles</button>
+                <span class="conn-status" id="onvif-status" role="status"></span>
+              </div>
+              <div class="onvif-toolbar" id="onvif-toolbar" hidden>
+                <label class="nvr-checkbox"><input type="checkbox" id="onvif-select-all"> Select all</label>
+                <span id="onvif-sel-count">0 selected</span>
+                <button class="btn btn-primary onvif-add-selected" id="onvif-add-selected-btn" type="button" disabled>Add selected</button>
+              </div>
+              <div class="onvif-devices" id="onvif-devices-list"></div>
+              <div class="form-row" id="onvif-profile-row" hidden>
+                <div class="form-group">
+                  <label for="onvif-profile-select">Profile (stream)</label>
+                  <select class="form-select" id="onvif-profile-select"></select>
+                </div>
               </div>
             </div>
 

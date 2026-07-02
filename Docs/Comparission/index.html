@@ -149,7 +149,7 @@
       <tr><td>Database</td><td>File JSON</td><td>SQLite (Peewee)</td><td>MariaDB/MySQL/SQLite</td><td>SQLite (42 migrasi)</td></tr>
       <tr><td>Streaming engine</td><td class="yes2">go2rtc + FFmpeg</td><td class="yes2">FFmpeg + go2rtc (bundling)</td><td>FFmpeg (per kamera)</td><td class="yes2">FFmpeg + go2rtc</td></tr>
       <tr><td>Realtime browser</td><td>SSE + WebRTC/MJPEG</td><td>WebSocket + go2rtc</td><td>Socket.io</td><td>libuv + go2rtc</td></tr>
-      <tr><td>Target kamera</td><td class="ok">Hikvision ISAPI (dalam)</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td></tr>
+      <tr><td>Target kamera</td><td class="ok">Hikvision ISAPI (dalam) + ONVIF generik (V-014)</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td><td>Generic RTSP/ONVIF</td></tr>
       <tr><td>Lisensi</td><td class="ok">MIT</td><td class="ok">MIT</td><td class="warn">EULA/GPLv3 (CE)</td><td class="warn">GPLv3</td></tr>
     </table></div>
     <div class="callout c-info">
@@ -180,7 +180,7 @@
       <div class="card fr"><h3>🔴 Frigate</h3><p>Juara deteksi AI. Pipeline 2-tahap: motion murah → object detection di area gerak. Face/LPR sejak 0.16. HA paling erat.</p></div>
       <div class="card sh"><h3>🟡 Shinobi</h3><p>Paling serba-bisa, banyak plugin & multi-storage/cloud. Tapi objek detection via plugin eksternal, motion pixel-based klasik.</p></div>
       <div class="card li"><h3>🔵 LightNVR</h3><p>Paling ringan (256MB) + retention paling canggih (4-tier). Backbone go2rtc seperti kita.</p></div>
-      <div class="card us"><h3>🟢 ENGINE-CCTV</h3><p>Paling dalam untuk Hikvision: ISAPI line-crossing arah panah, NVR auto-sync, playback langsung dari NVR — tak satupun lain punya.</p></div>
+      <div class="card us"><h3>🟢 ENGINE-CCTV</h3><p>Paling dalam untuk Hikvision: ISAPI line-crossing arah panah, NVR auto-sync, playback langsung dari NVR — tak satupun lain punya. Sejak V-014 (2 Jul 2026) juga ONVIF generik: discovery, live, events PullPoint, PTZ, playback Profile-G.</p></div>
     </div>
   </div>
 </section>

@@ -15,6 +15,7 @@ node src/server.js
         alertStreamManager.init() listener event deteksi realtime
         capabilitiesProbe.probeAllCameras()  deteksi HW (async)
    4. (jika VCA_ENABLED) vcaProxy.init()
+   4.5 (kecuali ONVIF_EVENTS=false) onvifEventManager.init()  PullPoint loop tiap kamera ONVIF (V-014)
    5. http.createServer(handleRequest).listen(PORT)
    |
    v
@@ -134,6 +135,27 @@ Settings → Cameras → Add Camera
 
 Hasil: tiap channel jadi kamera yang **live** dari NVR dan **playback** resolve ke channel NVR (`via='self'`).
 
+### 5b. Onboarding ONVIF (V-014)
+
+```
+Settings → Cameras → Add Camera → Brand "ONVIF"
+   |
+   ├─ "Discover ONVIF"  → POST /api/onvif/discover (WS-Discovery multicast)
+   |     ◄ devices[] (ip, model) → klik untuk auto-isi IP/port
+   ├─ isi user/pass → "Get profiles" → POST /api/onvif/profiles
+   |     └─ onvif-driver.resolveStreamUris: GetProfiles + GetStreamUri (main/sub)
+   |        + deteksi kapabilitas ptz & profileG
+   |     ◄ { profiles[], streamUri, streamUriSub, ptz, profileG, deviceInfo }
+   └─ pilih profil → Save → POST /api/cameras { protocol:'onvif', onvif:{…} }
+
+Live      : go2rtc pakai onvif.streamUri (kredensial disuntik) — sama seperti ISAPI.
+Events    : onvif-event-manager PullPoint → normalizeOnvifEvent → SSE (toast/flash/overlay).
+PTZ       : tombol ✚ di tile → pad → POST /api/onvif/ptz/:id (tekan-tahan move, lepas stop).
+Playback  : tombol ⏱ (bila profileG) → modal ONVIF → summary + replay via go2rtc.
+```
+
+> Kamera Hikvision tetap `protocol:'isapi'` (default) → semua alur di atas memakai jalur ISAPI lama tanpa perubahan.
+
 ---
 
 ## 6. Ringkasan Endpoint
@@ -145,6 +167,11 @@ Hasil: tiap channel jadi kamera yang **live** dari NVR dan **playback** resolve 
 | GET/PUT/DELETE | `/api/cameras/:id` | detail / update / hapus |
 | POST | `/api/nvr/channels` | scan channel NVR |
 | POST | `/api/nvr/import` | import channel jadi kamera |
+| POST | `/api/onvif/discover` | **(V-014)** WS-Discovery kamera ONVIF di LAN |
+| POST | `/api/onvif/profiles` | **(V-014)** resolve profil + stream URI + ptz/profileG |
+| POST | `/api/onvif/ptz/:id` | **(V-014)** kontrol PTZ (move/stop) |
+| GET | `/api/onvif/playback/summary` | **(V-014)** ringkasan rekaman Profile G |
+| POST | `/api/onvif/playback/start` | **(V-014)** mulai replay Profile G via go2rtc |
 | POST | `/api/webrtc`, `/api/streams` | signaling/proxy go2rtc |
 | GET | `/mjpeg/:id` | MJPEG fallback |
 | GET | `/api/events` | SSE event deteksi |

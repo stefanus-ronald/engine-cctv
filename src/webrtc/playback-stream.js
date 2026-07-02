@@ -141,6 +141,38 @@ async function startPlayback(cameraId, startUtc, endUtc, source, playbackURI) {
 }
 
 /**
+ * Register a playback stream from an ALREADY-RESOLVED RTSP URL (V-014, Fase 4).
+ * Used for ONVIF Profile-G replay, whose URL comes from GetReplayUri rather than
+ * the Hikvision tracks convention. Same go2rtc ffmpeg source + lifetime/cleanup
+ * as startPlayback; the client plays it via /api/webrtc?src=<name> and stops it
+ * via /api/playback/stream/stop.
+ *
+ * @param {string} cameraId
+ * @param {string} rtspUrl - full rtsp:// URL WITH credentials
+ * @returns {Promise<object>} { name, src } or { error }
+ */
+async function startPlaybackFromUrl(cameraId, rtspUrl) {
+  if (!go2rtcManager.isReady()) return { error: 'go2rtc not ready' };
+  if (!rtspUrl || !/^rtsp:\/\//i.test(rtspUrl)) return { error: 'valid rtsp url required' };
+
+  const ffSrc = `ffmpeg:${rtspUrl}#input=rtsp_re#video=copy`;
+  const name = _makeName(cameraId);
+  try {
+    const res = await fetch(
+      `${_apiBase()}/api/streams?name=${encodeURIComponent(name)}&src=${encodeURIComponent(ffSrc)}`,
+      { method: 'PUT' }
+    );
+    if (!res.ok) return { error: `go2rtc add stream failed: HTTP ${res.status}` };
+  } catch (err) {
+    return { error: `go2rtc add stream error: ${err.message}` };
+  }
+  const cleanupTimer = setTimeout(() => { stopPlayback(name); }, MAX_LIFETIME_MS);
+  if (cleanupTimer.unref) cleanupTimer.unref();
+  _active.set(name, { cleanupTimer });
+  return { name, src: ffSrc.replace(/\/\/[^/@\s]*@/g, '//***@') };
+}
+
+/**
  * Stop (remove) a playback stream from go2rtc.
  * @param {string} name
  */
@@ -165,4 +197,4 @@ function stopAll() {
   for (const name of Array.from(_active.keys())) stopPlayback(name);
 }
 
-module.exports = { startPlayback, stopPlayback, stopAll };
+module.exports = { startPlayback, startPlaybackFromUrl, stopPlayback, stopAll };

@@ -34,10 +34,22 @@ Form penambahan kamera baru dengan field:
 
 | Field | Required | Default | Keterangan |
 |-------|----------|---------|------------|
-| Brand | Ya | - | Dropdown (Hikvision) |
+| Brand | Ya | - | Dropdown: **Hikvision (ISAPI)** atau **ONVIF (generic)** (V-014) |
 | IP Address | Ya | - | Alamat IP perangkat |
 | RTSP Port | Ya | 554 | Port RTSP |
 | Username | Ya | - | Username autentikasi |
+
+### 5.2b Onboarding ONVIF (Brand = ONVIF, V-014)
+
+Saat Brand **ONVIF** dipilih, muncul blok ONVIF menggantikan alur ISAPI:
+
+- **Discover ONVIF** — WS-Discovery multicast → hasil tampil sebagai **kartu (card) yang bisa di-scroll** dengan **checkbox multi-select**. Toolbar: Select all · counter · **Add selected (N)** untuk **bulk onboarding** (resolve profil + tambah banyak kamera sekaligus, status per-kartu). Field "ISAPI/HTTP port" dipakai sebagai **port ONVIF** (biasanya 80).
+  - ⚠️ Multicast lewat WiFi/antar-VLAN sering diblokir → fallback **ketik IP manual + Get profiles**.
+- **Get profiles** — `GetProfiles` + `GetStreamUri` (main/sub) + deteksi `ptz`/`profileG` → pilih profil → **Save**.
+- Kamera ONVIF disimpan dengan `protocol:'onvif'` + objek `onvif{ port, xaddr, profileToken, streamUri, streamUriSub, ptz, profileG }`. Live via go2rtc (kredensial disuntik), events via PullPoint, PTZ bila didukung, playback bila Profile G.
+- Panel **Analytics** untuk kamera ONVIF menampilkan detektor yang **benar-benar didukung** (hasil probe `GetServices` + `GetEventProperties`); kontrol sensitivity ISAPI tidak berlaku.
+
+> **Catatan keamanan (berlaku semua brand):** password diredaksi oleh API, jadi form **Edit** membuka field password **kosong**. Ketik ulang password untuk **Test connection**; bila dikosongkan saat **Update**, password lama **dipertahankan** (tidak ditimpa). Test dengan password kosong ditolak agar tidak memicu **lockout akun** perangkat.
 | Password | Ya | - | Password autentikasi |
 | Camera Name | Ya | - | Nama display kamera |
 | Camera Group | Ya | - | Grup kamera |

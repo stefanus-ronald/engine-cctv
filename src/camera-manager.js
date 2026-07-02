@@ -35,6 +35,19 @@ function normalizeRtspPath(rtspPath) {
   return p;
 }
 
+/**
+ * Inject "user:pass@" into an rtsp:// URL that has no credentials. Used for ONVIF
+ * stream URIs (GetStreamUri returns them credential-free) so go2rtc can connect.
+ * If the URL already carries credentials, or isn't rtsp, it's returned unchanged.
+ */
+function injectRtspCredentials(url, user, pass) {
+  if (!url || !/^rtsp:\/\//i.test(url)) return url;
+  if (/^rtsp:\/\/[^/@]*@/i.test(url)) return url;       // already has credentials
+  if (!user) return url;                                 // nothing to inject
+  const creds = `${encodeURIComponent(user)}:${encodeURIComponent(pass || '')}@`;
+  return url.replace(/^rtsp:\/\//i, `rtsp://${creds}`);
+}
+
 function buildRtspUrl(cam) {
   const user = cam.username || 'admin';
   const pass = cam.password || '';
@@ -62,6 +75,19 @@ function buildRtspUrlWithPath(cam, rtspPath) {
  * /Streaming/Channels/<n> path we leave it unchanged (only main is available).
  */
 function buildRtspUrlForQuality(cam, quality) {
+  // ONVIF cameras don't follow Hikvision's /Streaming/Channels/<n> convention —
+  // their RTSP URL comes from the device's GetStreamUri (resolved at onboarding
+  // and stored on cam.onvif). Use it directly when present. Dormant until a
+  // camera is actually saved with protocol 'onvif' (V-014 Fase 1 populates it),
+  // so existing ISAPI cameras are unaffected.
+  if (String(cam.protocol || '').toLowerCase() === 'onvif' && cam.onvif) {
+    const wantSub = quality === 'sub';
+    const uri = (wantSub && cam.onvif.streamUriSub) || cam.onvif.streamUri || cam.onvif.streamUriSub;
+    // ONVIF GetStreamUri returns a credential-free RTSP URL; go2rtc needs
+    // user:pass embedded. Inject the camera's credentials when absent.
+    if (uri) return injectRtspCredentials(uri, cam.username, cam.password);
+    // No stored ONVIF URI yet → fall through to the generic builder below.
+  }
   const path = normalizeRtspPath(cam.rtspPath);
   const streamType = quality === 'sub' ? 2 : 1;
   const remapped = path.replace(/(\/Streaming\/Channels\/)(\d+)/i, (full, prefix, digits) => {
@@ -125,6 +151,16 @@ function getDeviceType(cam) {
   return 'ip';
 }
 
+/**
+ * Control protocol for a camera (V-014). Defaults to 'isapi' for backward
+ * compatibility — every camera authored before V-014 has no `protocol` field
+ * and must keep behaving as a Hikvision/ISAPI device.
+ */
+function getProtocol(cam) {
+  const p = String((cam && cam.protocol) || 'isapi').toLowerCase();
+  return (p === 'onvif' || p === 'rtsp') ? p : 'isapi';
+}
+
 function list() {
   return cameras.map(c => ({
     id: c.id,
@@ -136,6 +172,10 @@ function list() {
     rtspPath: c.rtspPath,
     isapiPort: c.isapiPort || null,
     deviceType: getDeviceType(c),
+    // Control protocol (V-014). 'isapi' (default) | 'onvif' | 'rtsp'. `onvif`
+    // holds ONVIF-specific connection details (port, profile token, stream URI).
+    protocol: getProtocol(c),
+    onvif: c.onvif || null,
     // Recorder linkage (set for channels discovered via NVR auto-sync) so the
     // UI can group channels under their recorder and label the source camera.
     recorderId: c.recorderId || null,
@@ -164,6 +204,8 @@ function add(data) {
     password: data.password || '',
     rtspPath: normalizeRtspPath(data.rtspPath),
     deviceType: data.deviceType || undefined,   // 'nvr'/'dvr' for recorder channels
+    protocol: data.protocol ? String(data.protocol).toLowerCase() : undefined, // V-014: 'onvif'/'rtsp' (undefined = isapi default)
+    onvif: data.onvif || undefined,             // V-014: ONVIF connection details when protocol === 'onvif'
     detection: data.detection || null,
     status: 'unknown',
   };
@@ -187,6 +229,8 @@ function update(id, data) {
   if (data.isapiPort !== undefined) cam.isapiPort = data.isapiPort ? parseInt(data.isapiPort) : null;
   if (data.detection !== undefined) cam.detection = data.detection;
   if (data.deviceType !== undefined) cam.deviceType = data.deviceType || undefined;
+  if (data.protocol !== undefined) cam.protocol = data.protocol ? String(data.protocol).toLowerCase() : undefined; // V-014
+  if (data.onvif !== undefined) cam.onvif = data.onvif || undefined;   // V-014
   cameras[idx] = cam;
   saveCameras(cameras);
   notifyChange('update', cam);
@@ -280,7 +324,9 @@ module.exports = {
   buildRtspUrlForQuality,
   buildPlaybackRtspUrl,
   buildTracksRtspUrl,
+  injectRtspCredentials,
   getDeviceType,
+  getProtocol,
   onCameraChange,
   setHwCapabilities,
   findByIpAndChannel,

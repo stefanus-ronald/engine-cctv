@@ -1,14 +1,14 @@
 # ENGINE-CCTV — Master Summary
 
 > Ringkasan menyeluruh sistem **ENGINE-CCTV**: apa fungsinya, modul-modulnya, fitur, dan rujukan dokumen. Untuk teknologi lihat [TECH-STACK.md](./TECH-STACK.md); untuk alur lihat [APP-FLOW.md](./APP-FLOW.md).
-> Terakhir diperbarui: 27 Jun 2026.
+> Terakhir diperbarui: 2 Jul 2026 (V-014: dukungan ONVIF multi-protokol — **live & events & deteksi kapabilitas tervalidasi di kamera ONVIF nyata**; PTZ & playback Profile-G siap, menunggu perangkat pendukung. **+ Hardening pasca-review**: retry-pull events, Renew, clock-offset auth, fix 2MB-hang, duplikat-instance exit bersih pada EADDRINUSE — lihat V-014 §16).
 > Cara menjalankan (PC baru / dari ZIP): lihat [`../README.md`](../README.md).
 
 ---
 
 ## 1. Apa Itu ENGINE-CCTV
 
-Server streaming CCTV terpadu (Node.js, tanpa framework) untuk kamera/recorder **Hikvision**. Satu proses HTTP menggabungkan:
+Server streaming CCTV terpadu (Node.js, tanpa framework) untuk kamera/recorder **Hikvision (ISAPI)** dan — sejak V-014 — kamera **ONVIF multi-merek** lewat lapisan driver (`cam.protocol: 'isapi' | 'onvif'`). Jalur video (go2rtc/FFmpeg/WebRTC/MJPEG/SSE) vendor-neutral; hanya kontrol perangkat yang per-protokol. Satu proses HTTP menggabungkan:
 
 - **Live streaming** ke browser via **WebRTC** (go2rtc) dengan fallback **MJPEG** (FFmpeg).
 - **Playback rekaman** dari NVR/DVR (timeline scrubber, unduh klip).
@@ -45,6 +45,16 @@ Target: dijalankan di LAN, diakses lewat browser. UI = single-page app vanilla J
 | `events/sse-broadcaster.js` | Push event ke browser via Server-Sent Events |
 | `events/event-normalizer.js`, `event-dedup.js` | Normalisasi & dedup event deteksi |
 | `vca/vca-proxy.js` | (Opsional) proxy ke layanan AI/VCA Python |
+| `drivers/device-driver.js` | **(V-014)** Abstraksi driver multi-protokol: `getDriver(cam)`/`getProtocol(cam)` (default `isapi`) |
+| `drivers/isapi-driver.js` | **(V-014)** Wrapper tipis atas modul `isapi/*` (perilaku Hikvision lama) |
+| `drivers/onvif-driver.js` | **(V-014)** Driver ONVIF: discover, resolve stream, PTZ, Profile-G playback |
+| `onvif/ws-security.js` | **(V-014)** WS-Security UsernameToken (digest SHA1) |
+| `onvif/soap-client.js` | **(V-014)** Klien SOAP 1.2 (+ fallback HTTP Digest, WS-Addressing) |
+| `onvif/ws-discovery.js` | **(V-014)** WS-Discovery multicast (auto-detect LAN) |
+| `onvif/media.js` | **(V-014)** GetProfiles / GetStreamUri (onboarding live) |
+| `onvif/events.js` + `onvif-event-manager.js` | **(V-014)** PullPoint subscription → SSE (event realtime) |
+| `onvif/ptz.js` | **(V-014)** PTZ ContinuousMove/Stop |
+| `onvif/replay.js` | **(V-014)** Recording Search + Replay (Profile G playback) |
 
 ## 3. Peta Frontend (`public/`)
 
@@ -94,7 +104,7 @@ Target: dijalankan di LAN, diakses lewat browser. UI = single-page app vanilla J
 - Download playback: `-t` durasi + watchdog + kill-on-disconnect → **tak membocorkan sesi NVR**; deteksi `453`→`503`.
 - `Cache-Control: no-cache` untuk `.js/.css/.html` agar UI selalu fresh.
 
-Detail perbaikan & audit: [Implementasi-Feature/V-008-changelog.md](./Implementasi-Feature/V-008-changelog.md) · [V-009 (NVR auto-sync, alert per-grid, notif playback)](./Implementasi-Feature/V-009-changelog.md) · [V-010 (storage/HDD management)](./Implementasi-Feature/V-010-changelog.md).
+Detail perbaikan & audit: [Implementasi-Feature/V-008-changelog.md](./Implementasi-Feature/V-008-changelog.md) · [V-009 (NVR auto-sync, alert per-grid, notif playback)](./Implementasi-Feature/V-009-changelog.md) · [V-010 (storage/HDD management)](./Implementasi-Feature/V-010-changelog.md) · [V-012 (input manual, dashboard UX)](./Implementasi-Feature/V-012-changelog.md) · [V-013 (hardening anti-crash/leak)](./Implementasi-Feature/V-013-changelog.md) · [**V-014 (dukungan ONVIF: driver + live + events + PTZ + playback)**](./Implementasi-Feature/V-014-onvif-design.md).
 
 ---
 

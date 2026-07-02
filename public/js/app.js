@@ -369,6 +369,10 @@ function buildCameraCapabilities() {
  */
 async function fetchLineConfig(cameraId) {
   if (_lineConfigCache[cameraId]) return _lineConfigCache[cameraId];
+  // Line-crossing config is ISAPI-only — ONVIF cameras don't expose it via this
+  // API. Skip the request entirely (avoids a useless 400/round-trip).
+  const _c = cameras.find(c => c.id === cameraId);
+  if (_c && String(_c.protocol || '').toLowerCase() === 'onvif') { _lineConfigCache[cameraId] = null; return null; }
   try {
     const res = await fetch(`/api/detection/lines/${encodeURIComponent(cameraId)}`);
     if (!res.ok) return null;
@@ -938,7 +942,11 @@ async function loadCamerasFromAPI() {
           recorderId: c.recorderId || null,        // which NVR/DVR this channel belongs to
           recorderName: c.recorderName || null,    // the recorder's display name
           sourceIp: c.sourceIp || null,            // the underlying camera IP behind the NVR
-          brand: 'hikvision',
+          // V-014: control protocol ('isapi' default | 'onvif'). The Add/Edit form
+          // keys its Brand select off this so an ONVIF camera re-opens as ONVIF.
+          protocol: c.protocol || 'isapi',
+          onvif: c.onvif || null,
+          brand: c.protocol === 'onvif' ? 'onvif' : 'hikvision',
           ip: c.ip || '',
           isapiPort: c.isapiPort || null,
           username: c.username || 'admin',
@@ -1038,9 +1046,11 @@ function readFormFields() {
   const deviceBtns = document.querySelectorAll('#cam-form-view .seg-btn[data-device]');
   let deviceType = 'ipcamera';
   deviceBtns.forEach(b => { if (b.classList.contains('active')) deviceType = b.dataset.device; });
+  const brand = document.getElementById('cam-add-brand').value;
   return {
     deviceType,
-    brand: document.getElementById('cam-add-brand').value,
+    brand,
+    protocol: brand === 'onvif' ? 'onvif' : 'isapi',   // V-014: control protocol
     ip: document.getElementById('cam-add-ip').value.trim(),
     username: document.getElementById('cam-add-user').value.trim(),
     password: document.getElementById('cam-add-pass').value,
@@ -1716,12 +1726,26 @@ function createTile(index) {
         <button class="ctrl-btn" data-action="fullscreen" title="Fullscreen" aria-label="Enter fullscreen">&#9974;</button>
         <button class="ctrl-btn" data-action="snapshot" title="Snapshot" aria-label="Take snapshot">&#128248;</button>
         ${cam.isapiPort ? '<button class="ctrl-btn" data-action="playback" title="Playback recording" aria-label="Play recorded video">&#9201;</button>' : ''}
+        ${(cam.protocol === 'onvif' && cam.onvif && cam.onvif.profileG) ? '<button class="ctrl-btn" data-action="onvif-playback" title="Playback (ONVIF Profile G)" aria-label="Play ONVIF recording">&#9201;</button>' : ''}
+        ${(cam.protocol === 'onvif' && cam.onvif && cam.onvif.ptz) ? '<button class="ctrl-btn" data-action="ptz-toggle" title="PTZ control" aria-label="PTZ pan/tilt/zoom">&#10018;</button>' : ''}
         ${eyeBadgeHtml}
         ${(cam.hwCapabilities && cam.hwCapabilities.line) ? '<button class="ctrl-btn" data-action="draw-line" title="Draw line crossing" aria-label="Draw line crossing rule">&#9998;</button>' : ''}
         <button class="ctrl-btn${audioOn ? ' active' : ''}" data-action="audio" title="Toggle Audio" aria-label="Toggle audio">${audioOn ? '&#128266;' : '&#128263;'}</button>
         <button class="ctrl-btn" data-action="reconnect" title="Reconnect" aria-label="Reconnect stream">&#128260;</button>
         <button class="ctrl-btn" data-action="remove" title="Remove" aria-label="Remove camera">&#10005;</button>
       </div>
+      ${(cam.protocol === 'onvif' && cam.onvif && cam.onvif.ptz) ? `
+      <div class="ptz-pad" style="display:none;position:absolute;left:8px;bottom:46px;z-index:7;background:rgba(0,0,0,.6);border-radius:8px;padding:6px;grid-template-columns:repeat(3,30px);gap:4px;">
+        <button class="ptz-btn" data-ptz="" style="visibility:hidden"></button>
+        <button class="ptz-btn" data-ptz="up" title="Tilt up">&#9650;</button>
+        <button class="ptz-btn" data-ptz="zoomin" title="Zoom in">+</button>
+        <button class="ptz-btn" data-ptz="left" title="Pan left">&#9664;</button>
+        <button class="ptz-btn" data-ptz="stop" title="Stop">&#9632;</button>
+        <button class="ptz-btn" data-ptz="right" title="Pan right">&#9654;</button>
+        <button class="ptz-btn" data-ptz="" style="visibility:hidden"></button>
+        <button class="ptz-btn" data-ptz="down" title="Tilt down">&#9660;</button>
+        <button class="ptz-btn" data-ptz="zoomout" title="Zoom out">&#8722;</button>
+      </div>` : ''}
       <div class="flash"></div>
       <div class="reconnect-overlay"><div class="spinner"></div><div class="tile-loading-label">Connecting…</div><div class="tile-prog"><div class="tile-prog-fill"></div></div><div class="tile-prog-pct">0%</div></div>
       <div class="volume-bar${audioOn ? ' active' : ''}"><div class="volume-level" style="height:${Math.floor(Math.random()*60+30)}%"></div></div>
@@ -1850,7 +1874,147 @@ function createTile(index) {
     handleTileAction(btn.dataset.action, tile, index, btn);
   });
 
+  // PTZ pad (ONVIF, Fase 3): press-and-hold to move, release to stop.
+  const ptzPad = tile.querySelector('.ptz-pad');
+  if (ptzPad) {
+    ptzPad.querySelectorAll('[data-ptz]').forEach(b => {
+      const dir = b.dataset.ptz;
+      if (!dir) return;
+      const start = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const camId = tileAssignments[index];
+        if (!camId) return;
+        if (dir === 'stop') { onvifPtzStop(camId); return; }
+        onvifPtzStart(camId, dir);
+      };
+      const end = (e) => { e.stopPropagation(); const camId = tileAssignments[index]; if (camId) onvifPtzStop(camId); };
+      b.addEventListener('pointerdown', start);
+      b.addEventListener('pointerup', end);
+      b.addEventListener('pointerleave', end);
+      b.addEventListener('pointercancel', end);
+    });
+  }
+
   return tile;
+}
+
+/* ── ONVIF PTZ (Fase 3) ── */
+const PTZ_VEL = {
+  up: { tilt: 0.6 }, down: { tilt: -0.6 }, left: { pan: -0.6 }, right: { pan: 0.6 },
+  zoomin: { zoom: 0.6 }, zoomout: { zoom: -0.6 },
+};
+function onvifPtzStart(camId, dir) {
+  const vel = PTZ_VEL[dir]; if (!vel) return;
+  fetch(`/api/onvif/ptz/${encodeURIComponent(camId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ action: 'move' }, vel)),
+  }).catch(e => console.warn('PTZ move failed:', e.message));
+}
+function onvifPtzStop(camId) {
+  fetch(`/api/onvif/ptz/${encodeURIComponent(camId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'stop' }),
+  }).catch(e => console.warn('PTZ stop failed:', e.message));
+}
+
+/* ── ONVIF playback (Profile G, Fase 4) — minimal, isolated modal ── */
+let _onvifPb = { pc: null, name: null, backdrop: null };
+
+async function openOnvifPlayback(camId) {
+  const cam = cameras.find(c => c.id === camId);
+  if (!cam) return;
+  closeOnvifPlayback();
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.style.display = 'flex';
+  bd.innerHTML = `
+    <div class="modal" style="max-width:820px;width:92%">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.12)">
+        <strong>ONVIF Playback — ${esc(cam.name)}</strong>
+        <button class="btn btn-secondary" data-onvif-pb-close type="button">Close</button>
+      </div>
+      <div style="padding:16px">
+        <video class="onvif-pb-video" autoplay muted playsinline style="width:100%;background:#000;border-radius:8px;aspect-ratio:16/9"></video>
+        <div class="onvif-pb-status" style="margin:10px 0;color:#aaa">Loading recordings…</div>
+        <div class="onvif-pb-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(bd);
+  _onvifPb.backdrop = bd;
+  bd.querySelector('[data-onvif-pb-close]').addEventListener('click', closeOnvifPlayback);
+  bd.addEventListener('click', e => { if (e.target === bd) closeOnvifPlayback(); });
+
+  const statusEl = bd.querySelector('.onvif-pb-status');
+  const listEl = bd.querySelector('.onvif-pb-list');
+  const video = bd.querySelector('.onvif-pb-video');
+  try {
+    const r = await fetch(`/api/onvif/playback/summary?cam=${encodeURIComponent(camId)}`).then(x => x.json());
+    if (r.error) { statusEl.textContent = 'Playback not available: ' + r.error; return; }
+    const range = (r.dataFrom || r.dataUntil) ? `Recorded ${r.dataFrom || '?'} → ${r.dataUntil || '?'}` : '';
+    const recs = r.recordings || [];
+    statusEl.textContent = recs.length ? `${recs.length} recording(s). ${range}` : `No recordings found. ${range}`;
+    recs.forEach((tok, i) => {
+      const b = document.createElement('button');
+      b.className = 'btn btn-secondary';
+      b.textContent = `Recording ${i + 1}`;
+      b.title = tok;
+      b.addEventListener('click', () => playOnvifRecording(camId, tok, video, statusEl));
+      listEl.appendChild(b);
+    });
+  } catch (e) { statusEl.textContent = 'Failed to load: ' + e.message; }
+}
+
+async function playOnvifRecording(camId, token, video, statusEl) {
+  statusEl.textContent = 'Starting replay…';
+  await stopOnvifPbStream();
+  try {
+    const r = await fetch('/api/onvif/playback/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cam: camId, token }),
+    }).then(x => x.json());
+    if (r.error) { statusEl.textContent = 'Replay failed: ' + r.error; return; }
+    _onvifPb.name = r.name;
+    await onvifPbConnect(video, r.name);
+    statusEl.textContent = 'Playing (from recording start — precise seek is a follow-up).';
+  } catch (e) { statusEl.textContent = 'Replay failed: ' + e.message; }
+}
+
+async function onvifPbConnect(video, name) {
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }],
+    bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require',
+  });
+  _onvifPb.pc = pc;
+  pc.ontrack = (e) => { video.srcObject = e.streams[0]; };
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise((resolve) => {
+    if (pc.iceGatheringState === 'complete') return resolve();
+    const t = setTimeout(resolve, 5000);
+    pc.addEventListener('icecandidate', (ev) => { if (!ev.candidate) { clearTimeout(t); resolve(); } });
+  });
+  const resp = await fetch(`/api/webrtc?src=${encodeURIComponent(name)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp,
+  });
+  if (!resp.ok) throw new Error(`WebRTC HTTP ${resp.status}`);
+  await pc.setRemoteDescription({ type: 'answer', sdp: await resp.text() });
+}
+
+async function stopOnvifPbStream() {
+  if (_onvifPb.pc) { try { _onvifPb.pc.close(); } catch (e) {} _onvifPb.pc = null; }
+  if (_onvifPb.name) {
+    const n = _onvifPb.name; _onvifPb.name = null;
+    fetch('/api/playback/stream/stop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n }),
+    }).catch(() => {});
+  }
+}
+
+function closeOnvifPlayback() {
+  stopOnvifPbStream();
+  if (_onvifPb.backdrop) { _onvifPb.backdrop.remove(); _onvifPb.backdrop = null; }
 }
 
 function handleTileAction(action, tile, index, srcBtn) {
@@ -1875,6 +2039,17 @@ function handleTileAction(action, tile, index, srcBtn) {
       const hqCam = cameras.find(c => c.id === tileAssignments[index]);
       if (hqCam) StreamAdapter.reconnect(tile, hqCam.id, settings.streamProtocol, index, isHq ? 'main' : 'sub');
       persistDashboard();
+      break;
+    }
+    case 'onvif-playback': {
+      const camId = tileAssignments[index];
+      if (camId) openOnvifPlayback(camId);
+      break;
+    }
+    case 'ptz-toggle': {
+      const pad = tile.querySelector('.ptz-pad');
+      if (pad) pad.style.display = (pad.style.display === 'none' || !pad.style.display) ? 'grid' : 'none';
+      if (srcBtn) srcBtn.classList.toggle('active', pad && pad.style.display === 'grid');
       break;
     }
     case 'focus': {
@@ -7954,6 +8129,7 @@ function applyDeviceMode() {
     document.getElementById('advanced-content').classList.add('open');
     document.getElementById('advanced-toggle-btn').classList.add('open');
   }
+  if (typeof applyBrandMode === 'function') applyBrandMode();   // V-014: ONVIF block depends on device type
   updateSaveButtonLabel();
 }
 
@@ -7996,6 +8172,15 @@ function resetCamForm() {
   document.getElementById('nvr-hint').hidden = false;
   document.getElementById('advanced-content').classList.remove('open');
   document.getElementById('advanced-toggle-btn').classList.remove('open');
+  // V-014: clear ONVIF onboarding state so a previous device's profiles don't leak
+  _onvifResolved = null;
+  _onvifPickedXAddr = null;
+  const onvList = document.getElementById('onvif-devices-list'); if (onvList) onvList.innerHTML = '';
+  const onvRow = document.getElementById('onvif-profile-row'); if (onvRow) onvRow.hidden = true;
+  const onvTb = document.getElementById('onvif-toolbar'); if (onvTb) onvTb.hidden = true;
+  const onvSelAll = document.getElementById('onvif-select-all'); if (onvSelAll) onvSelAll.checked = false;
+  if (typeof updateOnvifSelCount === 'function') updateOnvifSelCount();
+  setOnvifStatus('', '');
   applyDeviceMode();
   updateStreamPathHint();
   updateRtspPreview();
@@ -8019,6 +8204,18 @@ function enterEditMode(idx) {
   document.getElementById('cam-add-thumb').value = c.thumbnailUrl || '';
   addBtn.dataset.editIdx = idx;
   document.getElementById('cam-form-title').textContent = 'Edit Camera';
+  // V-014: brand was just set (may be 'onvif') → re-evaluate ONVIF block visibility.
+  // Seed the resolved-profile state from the saved camera so a re-save keeps its
+  // stream URIs even without re-running "Get profiles".
+  if (typeof applyBrandMode === 'function') applyBrandMode();
+  if (c.protocol === 'onvif' && c.onvif) {
+    _onvifResolved = {
+      streamUri: c.onvif.streamUri, streamUriSub: c.onvif.streamUriSub,
+      profileToken: c.onvif.profileToken, profileTokenSub: c.onvif.profileTokenSub,
+      xaddr: c.onvif.xaddr, profiles: [],
+    };
+    _onvifPickedXAddr = c.onvif.xaddr || null;
+  }
   updateSaveButtonLabel();
   updateRtspPreview();
   updateStreamPathHint();
@@ -8048,6 +8245,15 @@ function runConnectionTest() {
   if (!ip) {
     setConnStatus('err', 'Enter an IP address first');
     document.getElementById('cam-add-ip').focus();
+    return;
+  }
+  // Guard: never test with a blank password. Passwords are redacted by the API,
+  // so an edited camera opens with an EMPTY password field — testing then sends
+  // blank creds → 401, and repeated clicks trigger Hikvision's account lockout
+  // (~30 min) where even the correct password is rejected. Make the user retype.
+  if (!document.getElementById('cam-add-pass').value) {
+    setConnStatus('err', 'Ketik password dulu untuk test (disembunyikan saat edit demi keamanan).');
+    document.getElementById('cam-add-pass').focus();
     return;
   }
   clearTimeout(connTestTimer);
@@ -8221,9 +8427,199 @@ document.getElementById('cam-add-brand').addEventListener('change', () => {
     document.getElementById('cam-add-rtsp-port').value = '554';
     document.getElementById('cam-add-web-port').value = '80';
   }
+  applyBrandMode();
   updateStreamPathHint();
   updateRtspPreview();
 });
+
+/* ── ONVIF onboarding (V-014, Fase 1) ────────────────────────────────── */
+let _onvifResolved = null;   // last /api/onvif/profiles result for the open form
+
+// Show/hide the ONVIF block based on the selected brand. ONVIF is an IP-camera
+// flow only (not NVR), so it's hidden when device type is NVR.
+function applyBrandMode() {
+  const isOnvif = document.getElementById('cam-add-brand').value === 'onvif'
+    && getDeviceType() !== 'nvr';
+  const block = document.getElementById('onvif-block');
+  if (block) block.hidden = !isOnvif;
+  // ONVIF resolves the RTSP path from the device, so the manual stream-path is
+  // irrelevant; the standard "Test connection" (ISAPI storage probe) is replaced
+  // by the ONVIF Discover/Get-profiles buttons inside the block.
+  const testRow = document.querySelector('.test-conn-row');
+  if (testRow && document.getElementById('cam-test-btn')) {
+    document.getElementById('cam-test-btn').style.display = isOnvif ? 'none' : '';
+  }
+}
+
+function setOnvifStatus(kind, msg) {
+  const el = document.getElementById('onvif-status');
+  if (!el) return;
+  el.className = 'conn-status' + (kind ? ' ' + kind : '');
+  el.textContent = msg || '';
+}
+
+function onvifDiscover() {
+  setOnvifStatus('testing', 'Discovering ONVIF devices on the LAN…');
+  const list = document.getElementById('onvif-devices-list');
+  const toolbar = document.getElementById('onvif-toolbar');
+  list.innerHTML = '';
+  if (toolbar) toolbar.hidden = true;
+  fetch('/api/onvif/discover', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    .then(r => r.json()).then(data => {
+      const devices = (data && data.devices) || [];
+      if (!devices.length) { setOnvifStatus('err', 'No ONVIF devices found (multicast may be blocked — enter the IP manually).'); return; }
+      setOnvifStatus('ok', `Found ${devices.length} device${devices.length !== 1 ? 's' : ''} — tick to add multiple, or click a card to fetch its profiles.`);
+      for (const d of devices) {
+        const card = document.createElement('div');
+        card.className = 'onvif-card';
+        card.dataset.ip = d.ip || '';
+        card.dataset.port = String(d.port || 80);
+        card.dataset.xaddr = d.xaddr || '';
+        card.dataset.name = d.name || d.ip || '';
+        card.dataset.model = d.model || '';
+        card.innerHTML =
+          `<input type="checkbox" class="onvif-card-check" aria-label="Select ${esc(d.name || d.ip)}">` +
+          `<div class="onvif-card-body">` +
+            `<div class="onvif-card-name">${esc(d.name || d.ip)}</div>` +
+            `<div class="onvif-card-meta">${esc(d.ip)}:${esc(String(d.port || 80))}${d.model ? ' · ' + esc(d.model) : ''}</div>` +
+            `<div class="onvif-card-status"></div>` +
+          `</div>`;
+        // Checkbox = multi-select for bulk add.
+        card.querySelector('.onvif-card-check').addEventListener('change', (e) => {
+          card.classList.toggle('selected', e.target.checked);
+          updateOnvifSelCount();
+        });
+        // Card body (not the checkbox) = pick as PRIMARY for the single Get-profiles flow.
+        card.addEventListener('click', (e) => {
+          if (e.target.classList.contains('onvif-card-check')) return;
+          document.querySelectorAll('.onvif-card.primary').forEach(c => c.classList.remove('primary'));
+          card.classList.add('primary');
+          document.getElementById('cam-add-ip').value = d.ip || '';
+          if (d.port) document.getElementById('cam-add-web-port').value = String(d.port);
+          _onvifPickedXAddr = d.xaddr || null;
+          setOnvifStatus('ok', `Selected ${d.ip} — click "Get profiles", or tick cards + "Add selected".`);
+        });
+        list.appendChild(card);
+      }
+      if (toolbar) toolbar.hidden = false;
+      const selAll = document.getElementById('onvif-select-all');
+      if (selAll) selAll.checked = false;
+      updateOnvifSelCount();
+    }).catch(e => setOnvifStatus('err', `Discovery failed: ${e.message}`));
+}
+
+let _onvifPickedXAddr = null;
+
+function updateOnvifSelCount() {
+  const checks = [...document.querySelectorAll('.onvif-card-check')];
+  const sel = checks.filter(c => c.checked).length;
+  const countEl = document.getElementById('onvif-sel-count');
+  if (countEl) countEl.textContent = `${sel} selected`;
+  const addBtn = document.getElementById('onvif-add-selected-btn');
+  if (addBtn) { addBtn.disabled = sel === 0; addBtn.textContent = sel > 0 ? `Add selected (${sel})` : 'Add selected'; }
+  const selAll = document.getElementById('onvif-select-all');
+  if (selAll) selAll.checked = checks.length > 0 && sel === checks.length;
+}
+
+// Bulk onboarding: resolve profiles for every ticked card (shared credentials
+// from the form) then add each as an ONVIF camera. Per-card status is shown.
+async function onvifAddSelected() {
+  const cards = [...document.querySelectorAll('.onvif-card')].filter(c => c.querySelector('.onvif-card-check').checked);
+  if (!cards.length) return;
+  const username = document.getElementById('cam-add-user').value.trim();
+  const password = document.getElementById('cam-add-pass').value;
+  const group = document.getElementById('cam-add-group').value;
+  const addBtn = document.getElementById('onvif-add-selected-btn');
+  addBtn.disabled = true;
+  let ok = 0, fail = 0;
+  for (const card of cards) {
+    const statusEl = card.querySelector('.onvif-card-status');
+    const setSt = (k, m) => { statusEl.className = 'onvif-card-status ' + k; statusEl.textContent = m; };
+    const ip = card.dataset.ip;
+    const port = parseInt(card.dataset.port, 10) || 80;
+    setSt('testing', 'Fetching profiles…');
+    try {
+      const pr = await fetch('/api/onvif/profiles', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, port, username, password, xaddr: card.dataset.xaddr || undefined }),
+      }).then(r => r.json());
+      if (pr.error || !pr.streamUri) { setSt('err', pr.error || 'no stream'); fail++; continue; }
+      let rtspPort = 554; try { rtspPort = Number(new URL(pr.streamUri).port) || 554; } catch (e) {}
+      const dev = pr.deviceInfo ? `${pr.deviceInfo.manufacturer || ''} ${pr.deviceInfo.model || ''}`.trim() : '';
+      const name = card.dataset.name || dev || card.dataset.model || ip;
+      const onvif = {
+        port, xaddr: pr.xaddr || card.dataset.xaddr || undefined,
+        profileToken: pr.profileToken, profileTokenSub: pr.profileTokenSub || undefined,
+        streamUri: pr.streamUri, streamUriSub: pr.streamUriSub || undefined,
+        ptz: !!pr.ptz, profileG: !!pr.profileG,
+      };
+      await fetch('/api/cameras', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, group, ip, port: rtspPort, username, password, protocol: 'onvif', onvif }),
+      }).then(r => r.json());
+      setSt('ok', `Added${dev ? ' · ' + dev : ''}`);
+      card.querySelector('.onvif-card-check').checked = false;
+      card.classList.remove('selected');
+      ok++;
+    } catch (e) { setSt('err', e.message); fail++; }
+  }
+  await loadCamerasFromAPI();
+  renderCameraTable();
+  renderSidebar();
+  if (typeof updateBudget === 'function') updateBudget();
+  updateOnvifSelCount();
+  showToast(`ONVIF: ${ok} added${fail ? `, ${fail} failed` : ''}`, fail > 0);
+  notify(`ONVIF bulk add: ${ok} camera(s) added${fail ? `, ${fail} failed` : ''}`, { category: 'camera' });
+}
+
+function onvifGetProfiles() {
+  const ip = document.getElementById('cam-add-ip').value.trim();
+  if (!ip) { setOnvifStatus('err', 'Enter or select an IP first'); return; }
+  const port = parseInt(document.getElementById('cam-add-web-port').value, 10) || 80;
+  const username = document.getElementById('cam-add-user').value.trim();
+  const password = document.getElementById('cam-add-pass').value;
+  setOnvifStatus('testing', `Fetching profiles from ${ip}:${port}…`);
+  fetch('/api/onvif/profiles', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip, port, username, password, xaddr: _onvifPickedXAddr || undefined }),
+  }).then(r => r.json()).then(data => {
+    if (data.error) { setOnvifStatus('err', data.error); _onvifResolved = null; return; }
+    _onvifResolved = data;
+    const sel = document.getElementById('onvif-profile-select');
+    sel.innerHTML = '';
+    (data.profiles || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.token;
+      const res = (p.width && p.height) ? ` (${p.width}×${p.height})` : '';
+      opt.textContent = `${p.name || p.token}${res} · ${p.encoding || ''}`.trim();
+      sel.appendChild(opt);
+    });
+    if (data.profileToken) sel.value = data.profileToken;
+    document.getElementById('onvif-profile-row').hidden = (data.profiles || []).length === 0;
+    const dev = data.deviceInfo ? `${data.deviceInfo.manufacturer || ''} ${data.deviceInfo.model || ''}`.trim() : '';
+    setOnvifStatus('ok', `Ready${dev ? ' · ' + dev : ''} · ${(data.profiles || []).length} profile(s)`);
+    if (!document.getElementById('cam-add-name').value.trim() && dev) {
+      document.getElementById('cam-add-name').value = dev;
+    }
+  }).catch(e => { _onvifResolved = null; setOnvifStatus('err', `Failed: ${e.message}`); });
+}
+
+(function wireOnvifButtons() {
+  const d = document.getElementById('onvif-discover-btn');
+  const p = document.getElementById('onvif-profiles-btn');
+  if (d) d.addEventListener('click', onvifDiscover);
+  if (p) p.addEventListener('click', onvifGetProfiles);
+  const addSel = document.getElementById('onvif-add-selected-btn');
+  if (addSel) addSel.addEventListener('click', onvifAddSelected);
+  const selAll = document.getElementById('onvif-select-all');
+  if (selAll) selAll.addEventListener('change', (e) => {
+    document.querySelectorAll('.onvif-card-check').forEach(cb => {
+      cb.checked = e.target.checked;
+      cb.closest('.onvif-card').classList.toggle('selected', e.target.checked);
+    });
+    updateOnvifSelCount();
+  });
+})();
 
 document.getElementById('cam-add-btn').addEventListener('click', () => {
   const addBtn = document.getElementById('cam-add-btn');
@@ -8268,28 +8664,86 @@ document.getElementById('cam-add-btn').addEventListener('click', () => {
   nameInput.classList.toggle('error', !fields.name);
   if (!fields.name) { nameInput.focus(); return; }
 
+  // ONVIF camera (V-014, Fase 1): live via RTSP URIs resolved from the device.
+  // Requires "Get profiles" to have run so we have a real stream URI to store.
+  if (fields.protocol === 'onvif') {
+    if (!_onvifResolved || !_onvifResolved.streamUri) {
+      setOnvifStatus('err', 'Click "Get profiles" first to resolve the ONVIF stream.');
+      showToast('Get ONVIF profiles before saving', true);
+      return;
+    }
+    const sel = document.getElementById('onvif-profile-select');
+    const picked = (sel && sel.value) || _onvifResolved.profileToken;
+    let streamUri = _onvifResolved.streamUri;
+    let streamUriSub = _onvifResolved.streamUriSub;
+    // If the user picked the sub profile as primary, swap main/sub.
+    if (picked && _onvifResolved.profileTokenSub && picked === _onvifResolved.profileTokenSub) {
+      streamUri = _onvifResolved.streamUriSub || streamUri;
+      streamUriSub = _onvifResolved.streamUri;
+    }
+    let rtspPort = 554;
+    try { rtspPort = Number(new URL(streamUri).port) || 554; } catch (e) {}
+    const onvif = {
+      port: fields.webPort,
+      xaddr: _onvifResolved.xaddr || _onvifPickedXAddr || undefined,
+      profileToken: picked || _onvifResolved.profileToken,
+      profileTokenSub: _onvifResolved.profileTokenSub || undefined,
+      streamUri,
+      streamUriSub: streamUriSub || undefined,
+      ptz: !!_onvifResolved.ptz,          // Fase 3: enables the tile PTZ pad
+      profileG: !!_onvifResolved.profileG, // Fase 4: enables ONVIF playback
+    };
+    const body = {
+      name: fields.name, group: fields.group,
+      ip: fields.ip, port: rtspPort,
+      username: fields.username, password: fields.password,
+      protocol: 'onvif', onvif,
+    };
+    const url = isEditing ? `/api/cameras/${encodeURIComponent(cameras[+editIdx].id)}` : '/api/cameras';
+    const method = isEditing ? 'PUT' : 'POST';
+    addBtn.disabled = true;
+    setOnvifStatus('testing', isEditing ? 'Updating…' : 'Adding camera…');
+    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(r => r.json()).then(async () => {
+        addBtn.disabled = false;
+        await loadCamerasFromAPI();
+        notify(`ONVIF camera "${fields.name}" ${isEditing ? 'updated' : 'added'}`, { category: 'camera' });
+        exitEditMode();
+        renderCameraTable();
+        renderSidebar();
+        if (typeof updateBudget === 'function') updateBudget();
+      }).catch(e => { addBtn.disabled = false; setOnvifStatus('err', e.message); showToast(`Save failed: ${e.message}`, true); });
+    return;
+  }
+
   if (isEditing) {
     const cam = cameras[+editIdx];
-    // Update via API
+    // Update via API. IMPORTANT: passwords are redacted by the API, so an edited
+    // camera opens with a BLANK password field. Only send `password` when the
+    // user actually typed one — otherwise the backend would overwrite the stored
+    // password with "" (breaking the camera). Blank = keep existing.
+    const body = {
+      name: fields.name, group: fields.group,
+      ip: fields.ip, username: fields.username,
+      port: fields.rtspPort, rtspPath: fields.streamPath,
+      isapiPort: fields.webPort,
+      detection: { isapi: true, channelID: channelIdFromPath(fields.streamPath) }
+    };
+    if (fields.password) body.password = fields.password;
     fetch(`/api/cameras/${encodeURIComponent(cam.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: fields.name, group: fields.group,
-        ip: fields.ip, username: fields.username, password: fields.password,
-        port: fields.rtspPort, rtspPath: fields.streamPath,
-        isapiPort: fields.webPort,
-        detection: { isapi: true, channelID: channelIdFromPath(fields.streamPath) }
-      })
+      body: JSON.stringify(body)
     }).catch(e => console.warn('API update failed:', e.message));
 
     Object.assign(cam, {
       name: fields.name, group: fields.group,
       deviceType: 'ipcamera', brand: fields.brand,
-      ip: fields.ip, username: fields.username, password: fields.password,
+      ip: fields.ip, username: fields.username,
       rtspPort: fields.rtspPort, webPort: fields.webPort, isapiPort: fields.webPort,
       streamPath: fields.streamPath, thumbnailUrl: fields.thumbnailUrl
     });
+    if (fields.password) cam.password = fields.password;   // keep existing when blank
     notify(`Camera "${fields.name}" updated`, { category: 'camera' });
   } else {
     // Add via API

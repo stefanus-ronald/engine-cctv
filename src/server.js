@@ -76,8 +76,62 @@ async function main() {
     console.log('[vca] Python VCA proxy starting...');
   }
 
+  // 2.8. Start ONVIF PullPoint event loops (V-014, Fase 2). Feeds the same SSE
+  // pipeline as ISAPI. Idle when there are no ONVIF cameras; off via ONVIF_EVENTS=false.
+  let onvifEventManager = null;
+  if (process.env.ONVIF_EVENTS !== 'false') {
+    onvifEventManager = require('./onvif/onvif-event-manager');
+    onvifEventManager.init();
+    console.log('[onvif] Event listeners starting...');
+  }
+
+  // 2.9. Probe ONVIF camera capabilities (Fase 5) → sets hwCapabilities so the
+  // Analytics panel shows real supported detectors. Async, non-blocking.
+  {
+    const onvifCams = cameraManager.getAll().filter(c => String(c.protocol || '').toLowerCase() === 'onvif');
+    if (onvifCams.length) {
+      const onvifDriver = require('./drivers/onvif-driver');
+      const sseBroadcaster = require('./events/sse-broadcaster');
+      for (const cam of onvifCams) {
+        Promise.resolve()
+          .then(() => onvifDriver.getCapabilities(cam))
+          .then((caps) => {
+            cameraManager.setHwCapabilities(cam.id, caps);
+            sseBroadcaster.broadcast({ type: 'capabilities-updated', cameraId: cam.id });
+          })
+          .catch(() => {});
+      }
+      console.log(`[onvif] Probing capabilities for ${onvifCams.length} ONVIF camera(s)...`);
+    }
+  }
+
   // 3. Start HTTP server
   const server = http.createServer(handleRequest);
+
+  // Stop every long-lived manager (child processes, sockets, timers). Shared by
+  // graceful shutdown (SIGINT/SIGTERM) and fatal startup errors below.
+  const stopAllManagers = () => {
+    if (alertStreamManager) alertStreamManager.stop();
+    if (onvifEventManager) onvifEventManager.stop();
+    if (vcaProxy) vcaProxy.stop();
+    mjpegManager.stopAll();
+    playbackStream.stopAll();
+    go2rtcManager.stop();
+  };
+
+  // listen() errors are emitted async on the server object — WITHOUT this handler
+  // they fall into the global uncaughtException net, which deliberately does not
+  // exit, leaving a half-alive duplicate (ISAPI/ONVIF connected, go2rtc spawned,
+  // but no HTTP). A second instance must die loudly and cleanly instead.
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`[server] Port ${config.port} is already in use — is another ENGINE-CCTV instance running? Exiting.`);
+    } else {
+      console.error('[server] HTTP server error:', (err && err.stack) || err);
+    }
+    stopAllManagers();
+    process.exit(1);
+  });
 
   server.listen(config.port, () => {
     console.log('');
@@ -95,27 +149,14 @@ async function main() {
   });
 
   // 4. Graceful shutdown
-  process.on('SIGINT', () => {
+  const shutdown = () => {
     console.log('\nShutting down...');
-    if (alertStreamManager) alertStreamManager.stop();
-    if (vcaProxy) vcaProxy.stop();
-    mjpegManager.stopAll();
-    playbackStream.stopAll();
-    go2rtcManager.stop();
+    stopAllManagers();
     server.close();
     process.exit(0);
-  });
-
-  process.on('SIGTERM', () => {
-    console.log('\nShutting down...');
-    if (alertStreamManager) alertStreamManager.stop();
-    if (vcaProxy) vcaProxy.stop();
-    mjpegManager.stopAll();
-    playbackStream.stopAll();
-    go2rtcManager.stop();
-    server.close();
-    process.exit(0);
-  });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 main().catch((err) => {
